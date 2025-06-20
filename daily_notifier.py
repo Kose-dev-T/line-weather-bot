@@ -42,7 +42,7 @@ PREFECTURE_GUESS_MAP = {
     "新潟": "新潟県", "富山": "富山県", "金沢": "石川県", "福井": "福井県", "甲府": "山梨県", "長野": "長野県", "岐阜": "岐阜県",
     "静岡": "静岡県", "浜松": "静岡県", "名古屋": "愛知県", "津": "三重県",
     # 関西
-    "大津": "滋賀県", "近江八幡": "滋賀県", "彦根": "滋賀県", "草津": "滋賀県",
+    "大津": "滋賀県", "近江八幡": "滋賀県", "彦根": "滋賀県", "草津": "滋賀県", # 例: "近江八幡市" -> "近江八幡" でマッチするよう修正
     "京都": "京都府", "大阪": "大阪府", "堺": "大阪府", "東大阪": "大阪府",
     "神戸": "兵庫県", "姫路": "兵庫県", "西宮": "兵庫県",
     "奈良": "奈良県", "和歌山": "和歌山県",
@@ -100,6 +100,7 @@ def get_jma_area_info(city_name_input):
         
         if not geo_data:
             print(f"DEBUG: OpenWeatherMapで'{city_name_input}'の地理情報が見つかりませんでした。")
+            # OpenWeatherMapで見つからない場合、都道府県マッピングで直接探す
             prefecture_jp = PREFECTURE_GUESS_MAP.get(normalize_place_name(city_name_input), None)
             if prefecture_jp:
                 print(f"DEBUG: 地名直接マッピングで都道府県 '{prefecture_jp}' を推測しました。")
