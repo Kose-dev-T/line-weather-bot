@@ -36,7 +36,7 @@
 
 ## 4. 技術スタック (Technology Stack)
 
-* **バックエンド**: Python 3.11, Flask, Gunicorn
+* **バックエンド**: Python 3.11.9, Flask, Gunicorn
 * **データベース**: PostgreSQL
 * **主要ライブラリ**: `line-bot-sdk-python`, `requests`, `SQLAlchemy`, `psycopg2-binary`, `python-dotenv`
 * **インフラストラクチャ**: Render.com (Web Service & Cron Job), Git/GitHub
