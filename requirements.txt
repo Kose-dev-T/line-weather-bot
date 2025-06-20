@@ -28,6 +28,7 @@ packaging==25.0
 pillow==10.4.0
 propcache==0.2.0
 psycopg==3.2.9
+psycopg2-binary==2.9.9
 psycopg-binary==3.2.9
 pydantic==2.10.6
 pydantic_core==2.27.2
