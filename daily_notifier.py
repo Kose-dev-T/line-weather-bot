@@ -1,21 +1,59 @@
 import os
-from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, PushMessageRequest, TextMessage
-import database # 作成したdatabase.pyをインポート
-# app.pyから天気予報を取得する関数をコピーしてくる
-from app import get_daily_forecast 
+import requests # requestsを直接使うのでインポート
+import json     # JSONデータを扱うためにインポート
+from dotenv import load_dotenv
+import database
 
-# app.pyからキー情報をコピーしてくる
-CHANNEL_ACCESS_TOKEN = "ここにあなたのLINEチャネルアクセストークン"
+# daily_notifier.pyがapp.pyの関数を使えるように、少し工夫します
+from app import get_daily_forecast
 
-# LINE Bot APIの初期化
-configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
-api_client = ApiClient(configuration)
-line_bot_api = MessagingApi(api_client)
+# --- 初期設定 ---
+load_dotenv()
+CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+
+def send_line_push_notification(user_id, message):
+    """【修正箇所】requestsを直接使い、指定したユーザーIDにプッシュ通知を送信する関数"""
+    
+    # LINEのPush Message APIのエンドポイントURL
+    push_api_url = "https://api.line.me/v2/bot/message/push"
+    
+    # リクエストに必要なヘッダー
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"
+    }
+    
+    # 送信するデータ本体（JSON形式）
+    body = {
+        "to": user_id,
+        "messages": [
+            {
+                "type": "text",
+                "text": message
+            }
+        ]
+    }
+
+    try:
+        # requests.postで、LINEのサーバーに直接通知リクエストを送信
+        response = requests.post(push_api_url, headers=headers, data=json.dumps(body))
+        response.raise_for_status() # エラーがあればここで停止
+        print(f"ユーザー({user_id})への通知が成功しました。")
+    except requests.exceptions.RequestException as e:
+        print(f"ユーザー({user_id})へのLINE通知エラー: {e}")
+        # サーバーからの詳細なエラー内容も表示
+        print(f"応答内容: {e.response.text}")
+
 
 def send_daily_forecasts():
+    """登録ユーザー全員に天気予報を通知するメイン関数"""
     print("デイリー通知の送信を開始します...")
-    # 登録地がある全ユーザーを取得
+    
+    # データベースから登録ユーザーを取得
     users = database.get_all_users_with_location()
+    
+    if not users:
+        print("通知対象のユーザーが見つかりませんでした。")
     
     for user in users:
         user_id, city_name, lat, lon = user
@@ -25,14 +63,17 @@ def send_daily_forecasts():
         forecast_message = get_daily_forecast(lat, lon, city_name)
         
         if forecast_message:
-            # プッシュメッセージでユーザーに通知を送信
-            line_bot_api.push_message(
-                PushMessageRequest(
-                    to=user_id,
-                    messages=[TextMessage(text=forecast_message)]
-                )
-            )
+            # 新しい通知関数を呼び出す
+            send_line_push_notification(user_id, forecast_message)
+            
     print("デイリー通知の送信が完了しました。")
 
+# --- メインの実行部分 ---
 if __name__ == "__main__":
-    send_daily_forecasts()
+    if not CHANNEL_ACCESS_TOKEN:
+        print("エラー: .envファイルにLINE_CHANNEL_ACCESS_TOKENが設定されていません。")
+    else:
+        # データベースを初期化
+        database.init_db()
+        # 通知処理を開始
+        send_daily_forecasts()
