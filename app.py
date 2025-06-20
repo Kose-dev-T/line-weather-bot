@@ -8,17 +8,14 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent, P
 from datetime import datetime
 from dotenv import load_dotenv
 import database
-import re
 
 # --- 初期設定 ---
 load_dotenv()
-app = Flask(__name__) # まずFlaskアプリ本体を先に作成
+app = Flask(__name__)
 
-# アプリケーションのコンテキスト内でデータベースを初期化
 with app.app_context():
     database.init_db()
 
-# 環境変数からキー情報を取得
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
@@ -28,7 +25,6 @@ handler = WebhookHandler(CHANNEL_SECRET)
 # --- 補助関数群 ---
 
 def get_location_coords(city_name):
-    """地名から緯度と経度を取得する関数"""
     api_url = "http://api.openweathermap.org/geo/1.0/direct"
     params = {"q": city_name, "limit": 1, "appid": OPENWEATHER_API_KEY}
     try:
@@ -43,8 +39,7 @@ def get_location_coords(city_name):
         print(f"Geocoding API Error: {e}")
         return None
 
-def get_daily_forecast_message(lat, lon, city_name):
-    """天気予報を取得し、LINE APIで使えるFlex MessageのJSON辞書を返す"""
+def get_daily_forecast_message_dict(lat, lon, city_name):
     api_url = "https://api.openweathermap.org/data/2.5/forecast"
     params = {"lat": lat, "lon": lon, "appid": OPENWEATHER_API_KEY, "units": "metric", "lang": "ja"}
     try:
@@ -67,40 +62,30 @@ def get_daily_forecast_message(lat, lon, city_name):
         description = " / ".join(weather_descriptions) if weather_descriptions else "情報なし"
         
         flex_message = {
-            "type": "flex",
-            "altText": f"{city_name}の天気予報",
+            "type": "flex", "altText": f"{city_name}の天気予報",
             "contents": {
-                "type": "bubble",
-                "direction": 'ltr',
-                "header": {"layout": "vertical", "contents": [{"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl"}]},
-                "body": {
-                    "type": "box", "layout": "vertical", "spacing": "md",
-                    "contents": [
-                        {"type": "box", "layout": "vertical", "contents": [
-                            {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#1DB446"},
-                            {"type": "text", "text": datetime.now().strftime('%Y年%m月%d日'), "size": "sm", "color": "#AAAAAA"}
-                        ]},
-                        {"type": "separator", "margin": "md"},
-                        {"type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [
-                            {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                                {"type": "text", "text": "天気", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                                {"type": "text", "text": description, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
-                            ]},
-                            {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                                {"type": "text", "text": "最高気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                                {"type": "text", "text": f"{temp_max:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
-                            ]},
-                            {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                                {"type": "text", "text": "最低気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                                {"type": "text", "text": f"{temp_min:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
-                            ]},
-                            {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                                {"type": "text", "text": "降水確率", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                                {"type": "text", "text": f"{pop_percent:.0f}%", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
-                            ]}
-                        ]}
-                    ]
-                }
+                "type": "bubble", "direction": 'ltr',
+                "header": {"type": "box", "layout": "vertical", "contents": [{"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl"}]},
+                "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
+                    {"type": "box", "layout": "vertical", "contents": [
+                        {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#1DB446"},
+                        {"type": "text", "text": datetime.now().strftime('%Y年%m月%d日'), "size": "sm", "color": "#AAAAAA"}]},
+                    {"type": "separator", "margin": "md"},
+                    {"type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [
+                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
+                            {"type": "text", "text": "天気", "color": "#AAAAAA", "size": "sm", "flex": 2},
+                            {"type": "text", "text": description, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
+                            {"type": "text", "text": "最高気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
+                            {"type": "text", "text": f"{temp_max:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
+                            {"type": "text", "text": "最低気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
+                            {"type": "text", "text": f"{temp_min:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
+                            {"type": "text", "text": "降水確率", "color": "#AAAAAA", "size": "sm", "flex": 2},
+                            {"type": "text", "text": f"{pop_percent:.0f}%", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]}
+                    ]}
+                ]}
             }
         }
         return flex_message
@@ -109,35 +94,23 @@ def get_daily_forecast_message(lat, lon, city_name):
         return {"type": "text", "text": "天気情報の取得に失敗しました。"}
 
 def get_weather_sticker_message(weather_description):
-    """天気の説明文から、LINE APIで使えるスタンプのJSON辞書を返す"""
-    if "晴" in weather_description:
-        package_id, sticker_id = "11537", "52002734"
-    elif "曇" in weather_description:
-        package_id, sticker_id = "11537", "52002748"
-    elif "雨" in weather_description:
-        package_id, sticker_id = "11538", "51626501"
-    elif "雪" in weather_description:
-        package_id, sticker_id = "11538", "51626522"
-    else:
-        package_id, sticker_id = "11537", "52002735"
-    
+    if "晴" in weather_description: package_id, sticker_id = "11537", "52002734"
+    elif "曇" in weather_description: package_id, sticker_id = "11537", "52002748"
+    elif "雨" in weather_description: package_id, sticker_id = "11538", "51626501"
+    elif "雪" in weather_description: package_id, sticker_id = "11538", "51626522"
+    else: package_id, sticker_id = "11537", "52002735"
     return {"type": "sticker", "packageId": str(package_id), "stickerId": str(sticker_id)}
 
 def reply_to_line(reply_token, messages):
-    """requestsを使って、LINEにメッセージを返信する関数"""
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"
-    }
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
     body = {"replyToken": reply_token, "messages": messages}
     try:
         response = requests.post("https://api.line.me/v2/bot/message/reply", headers=headers, data=json.dumps(body))
         response.raise_for_status()
         print("LINEへの返信が成功しました。")
     except requests.exceptions.RequestException as e:
-        print(f"LINE返信エラー: {e}\n応答内容: {e.response.text}")
+        print(f"LINE返信エラー: {e}\n応答内容: {e.response.text if e.response else 'N/A'}")
 
-# --- LINEからのアクセス（Webhook）を処理 ---
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -148,7 +121,6 @@ def callback():
         abort(400)
     return 'OK'
 
-# --- イベントごとの処理 ---
 @handler.add(FollowEvent)
 def handle_follow(event):
     user_id = event.source.user_id
@@ -169,7 +141,6 @@ def handle_message(event):
     user_id = event.source.user_id
     user_message = event.message.text
     user_state = database.get_user_state(user_id)
-    
     messages_to_send = []
     
     if user_state == 'waiting_for_location':
@@ -182,13 +153,11 @@ def handle_message(event):
     else:
         coords_data = get_location_coords(user_message)
         if coords_data:
-            forecast_message = get_daily_forecast_message(coords_data["lat"], coords_data["lon"], coords_data["name"])
-            
+            forecast_message = get_daily_forecast_message_dict(coords_data["lat"], coords_data["lon"], coords_data["name"])
             if forecast_message.get("type") == "flex":
                 weather_description = forecast_message["contents"]["body"]["contents"][2]["contents"][0]["contents"][1]["text"]
                 sticker_message = get_weather_sticker_message(weather_description)
                 messages_to_send.append(sticker_message)
-            
             messages_to_send.append(forecast_message)
         else:
             messages_to_send.append({"type": "text", "text": f"「{user_message}」という地名が見つかりませんでした。"})
@@ -196,6 +165,5 @@ def handle_message(event):
     if messages_to_send:
         reply_to_line(event.reply_token, messages_to_send)
 
-# --- サーバーを起動 ---
 if __name__ == "__main__":
     app.run(port=5000)
