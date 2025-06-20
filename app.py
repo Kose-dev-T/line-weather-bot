@@ -41,23 +41,32 @@ handler = WebhookHandler(CHANNEL_SECRET)
 JMA_AREA_DATA = None
 
 # 特定の市区町村から都道府県を推測するためのマップ (OpenWeatherMapのstateが空の場合の補完用)
+# キーはnormalize_place_name()で処理された後の形に合わせる（小文字のローマ字）
 PREFECTURE_GUESS_MAP = {
-    "札幌": "北海道", "旭川": "北海道", "函館": "北海道",
-    "青森": "青森県", "盛岡": "岩手県", "仙台": "宮城県", "秋田": "秋田県", "山形": "山形県", "福島県": "福島県",
-    "水戸": "茨城県", "宇都宮": "栃木県", "前橋": "群馬県", "さいたま": "埼玉県", "千葉": "千葉県", "東京": "東京都", 
-    "新宿": "東京都", "千代田": "東京都", "中央": "東京都", "港": "東京都", "渋谷": "東京都", "大田": "東京都", 
-    "横浜": "神奈川県", "川崎": "神奈川県", "相模原": "神奈川県",
-    "新潟": "新潟県", "富山": "富山県", "金沢": "石川県", "福井": "福井県", "甲府": "山梨県", "長野": "長野県", "岐阜県": "岐阜県",
-    "静岡": "静岡県", "浜松": "静岡県", "名古屋": "愛知県", "津": "三重県",
-    "大津": "滋賀県", "近江八幡": "滋賀県", "彦根": "滋賀県", "草津": "滋賀県",
-    "京都": "京都府", "大阪": "大阪府", "堺": "大阪府", "東大阪": "大阪府",
-    "神戸": "兵庫県", "姫路": "兵庫県", "西宮": "兵庫県",
-    "奈良": "奈良県", "和歌山": "和歌山県",
-    "鳥取": "鳥取県", "松江": "島根県", "岡山": "岡山県", "広島": "広島県", "福山": "広島県", "山口県": "山口県",
-    "徳島": "徳島県", "高松": "香川県", "松山": "愛媛県", "高知": "高知県",
-    "福岡": "福岡県", "北九州": "福岡県", "久留米": "福岡県",
-    "佐賀": "佐賀県", "長崎": "長崎県", "熊本": "熊本県", "大分": "大分県", "宮崎県": "宮崎県", "鹿児島県": "鹿児島県",
-    "那覇": "沖縄県", "沖縄": "沖縄県",
+    # 北海道
+    "sapporo": "北海道", "asahikawa": "北海道", "hakodate": "北海道",
+    # 東北
+    "aomori": "青森県", "morioka": "岩手県", "sendai": "宮城県", "akita": "秋田県", "yamagata": "山形県", "fukushima": "福島県",
+    # 関東
+    "mito": "茨城県", "utsunomiya": "栃木県", "maebashi": "群馬県", "saitama": "埼玉県", "chiba": "千葉県", "tokyo": "東京都", 
+    "shinjuku": "東京都", "chiyoda": "東京都", "chuo": "東京都", "minato": "東京都", "shibuya": "東京都", "ota": "東京都", 
+    "yokohama": "神奈川県", "kawasaki": "神奈川県", "sagamihara": "神奈川県",
+    # 中部
+    "niigata": "新潟県", "toyama": "富山県", "kanazawa": "石川県", "fukui": "福井県", "kofu": "山梨県", "nagano": "長野県", "gifu": "岐阜県",
+    "shizuoka": "静岡県", "hamamatsu": "静岡県", "nagoya": "愛知県", "tsu": "三重県",
+    # 関西
+    "otsu": "滋賀県", "oumihachiman": "滋賀県", "hikone": "滋賀県", "kusatsu": "滋賀県", 
+    "kyoto": "京都府", "osaka": "大阪府", "sakai": "大阪府", "higashiosaka": "大阪府",
+    "kobe": "兵庫県", "himeji": "兵庫県", "nishinomiya": "兵庫県",
+    "nara": "奈良県", "wakayama": "和歌山県",
+    # 中国
+    "tottori": "鳥取県", "matsue": "島根県", "okayama": "岡山県", "hiroshima": "広島県", "fukuyama": "広島県", "yamaguchi": "山口県",
+    # 四国
+    "tokushima": "徳島県", "takamatsu": "香川県", "matsuyama": "愛媛県", "kochi": "高知県",
+    # 九州・沖縄
+    "fukuoka": "福岡県", "kitakyushu": "福岡県", "kurume": "福岡県",
+    "saga": "佐賀県", "nagasaki": "長崎県", "kumamoto": "熊本県", "oita": "大分県", "miyazaki": "宮崎県", "kagoshima": "鹿児島県",
+    "naha": "沖縄県", "okinawa": "沖縄県", 
 }
 
 # --- 補助関数群 ---
@@ -66,21 +75,22 @@ def normalize_place_name(name):
     """
     地名から一般的な接尾辞を除去し、全角/半角スペースを削除して小文字に変換する。
     例: "大阪市" -> "大阪", "東京都" -> "東京", "札幌" -> "札幌"
+    ひらがなやカタカナもローマ字に変換するための追加ロジックを含まない。
+    単に指定された接尾辞を除去し、小文字化する。
     """
     if not isinstance(name, str):
         return ""
     
     normalized = name.replace(' ', '').replace('　', '')
     
-    # より多くの接尾辞を考慮し、順序も調整
     suffixes = ['市', '区', '町', '村', '郡', '都', '道', '府', '県', '地方', '部']
     for suffix in suffixes:
         if normalized.endswith(suffix):
             normalized = normalized[:-len(suffix)]
-            # 接尾辞を除去したら、さらにその地名が別の接尾辞を持つか再帰的にチェック
             return normalize_place_name(normalized) # 再帰的に呼び出し
     
-    return normalized.lower()
+    # ひらがな/カタカナからローマ字への変換は行わない（JMAデータも日本語のため）
+    return normalized.lower() # ここは小文字化のみ維持
 
 def get_jma_area_info(city_name_input):
     """
@@ -104,19 +114,17 @@ def get_jma_area_info(city_name_input):
         
         if not geo_data:
             print(f"DEBUG: OpenWeatherMapで'{city_name_input}'の地理情報が見つかりませんでした。")
-            # OpenWeatherMapで見つからない場合、都道府県マッピングで直接探す
             prefecture_jp = PREFECTURE_GUESS_MAP.get(normalize_place_name(city_name_input), None)
             if prefecture_jp:
                 print(f"DEBUG: 地名直接マッピングで都道府県 '{prefecture_jp}' を推測しました。")
             else:
                 print(f"DEBUG: 地名直接マッピングでも都道府県を特定できませんでした。")
-                return None # OpenWeatherMapでも直接マッピングでも見つからなければ終了
+                return None 
         else:
             prefecture_en = geo_data[0].get("state", "")
             geo_city_name = geo_data[0].get("name", "")
             print(f"DEBUG: OpenWeatherMap結果: state='{prefecture_en}', name='{geo_city_name}'")
 
-            # OpenWeatherMapが都道府県を返した場合
             if prefecture_en:
                 prefecture_map = {
                     "Hokkaido": "北海道", "Aomori": "青森県", "Iwate": "岩手県", "Miyagi": "宮城県", "Akita": "秋田県", "Yamagata": "山形県", "Fukushima": "福島県",
@@ -130,26 +138,21 @@ def get_jma_area_info(city_name_input):
                 prefecture_jp = prefecture_map.get(prefecture_en)
                 if not prefecture_jp:
                     print(f"警告: OpenWeatherMapが返した英語都道府県名 '{prefecture_en}' を日本語にマッピングできませんでした。")
-                    # マッピングできない場合、地名直接マッピングで試す
                     prefecture_jp = PREFECTURE_GUESS_MAP.get(normalize_place_name(city_name_input), None)
                     if prefecture_jp:
                         print(f"DEBUG: 地名直接マッピングで都道府県 '{prefecture_jp}' を推測しました。")
             else:
-                # OpenWeatherMapが都道府県を返さなかった場合、OpenWeatherMapの都市名とユーザー入力の地名で都道府県を推測
                 print(f"DEBUG: OpenWeatherMapが都道府県を返しませんでした。地名から推測を試みます。")
-                
-                # ユーザー入力地名から推測
                 prefecture_jp = PREFECTURE_GUESS_MAP.get(normalize_place_name(city_name_input), None)
                 if prefecture_jp:
                     print(f"DEBUG: ユーザー入力地名直接マッピングで都道府県 '{prefecture_jp}' を推測しました。")
                 else:
-                    # OpenWeatherMapが返した都市名から推測
                     prefecture_jp = PREFECTURE_GUESS_MAP.get(normalize_place_name(geo_city_name), None)
                     if prefecture_jp:
                         print(f"DEBUG: OpenWeatherMap都市名直接マッピングで都道府県 '{prefecture_jp}' を推測しました。")
                     else:
                         print(f"DEBUG: 地名から都道府県を推測できませんでした。")
-                        return None # どちらもダメなら終了
+                        return None 
         
         if not prefecture_jp:
             print(f"最終的に都道府県を特定できませんでした。")
@@ -157,7 +160,6 @@ def get_jma_area_info(city_name_input):
 
         print(f"DEBUG: 特定された都道府県 (日本語): {prefecture_jp}")
 
-        # 気象庁エリアデータをキャッシュ（初回のみ取得）
         if JMA_AREA_DATA is None:
             area_res = requests.get("https://www.jma.go.jp/bosai/common/const/area.json")
             area_res.raise_for_status()
@@ -171,11 +173,11 @@ def get_jma_area_info(city_name_input):
             "静岡県": "静岡", "愛知県": "名古屋", "三重県": "津", "滋賀県": "彦根", "京都府": "京都", "大阪府": "大阪", "兵庫県": "神戸",
             "奈良県": "奈良", "和歌山県": "和歌山", "鳥取県": "鳥取", "島根県": "松江", "岡山県": "岡山", "広島県": "広島", "山口県": "山口",
             "徳島県": "徳島", "香川県": "高松", "愛媛県": "松山", "高知県": "高知", "福岡県": "福岡", "佐賀県": "佐賀", "長崎県": "長崎",
-            "熊本県": "熊本", "大分県": "大分", "宮崎県": "宮崎", "鹿児島県": "鹿児島", "沖縄県": "那覇"
+            "熊本県": "熊本", "大分県": "大分", "宮崎県": "宮崎県", "鹿児島県": "鹿児島県", "沖縄県": "那覇"
         }
         
         target_jma_office_name = jma_office_short_name_map.get(prefecture_jp, prefecture_jp.replace('県', '').replace('府', '').replace('都', '').replace('道', '')) 
-        if prefecture_jp == "和歌山県": # 和歌山県は例外的に「和歌山」
+        if prefecture_jp == "和歌山県": 
             target_jma_office_name = "和歌山"
         
         office_code = None
@@ -196,6 +198,7 @@ def get_jma_area_info(city_name_input):
         found_area_name = None
 
         normalized_input = normalize_place_name(city_name_input)
+        print(f"DEBUG: 正規化されたユーザー入力: '{normalized_input}'")
         
         best_match_score = -1
         best_match_area = None
@@ -207,6 +210,7 @@ def get_jma_area_info(city_name_input):
             
             normalized_c20_name = normalize_place_name(c20_name)
             normalized_c20_kana = normalize_place_name(c20_kana)
+            print(f"DEBUG:   予報区 '{c20_name}' (正規化: '{normalized_c20_name}', かな正規化: '{normalized_c20_kana}')")
             
             current_score = -1
             
@@ -214,27 +218,33 @@ def get_jma_area_info(city_name_input):
             if normalized_c20_name == normalized_input or normalized_c20_kana == normalized_input:
                 current_score = 100 
                 best_match_area = {'code': c20_code, 'name': c20_name}
+                print(f"DEBUG:     完全一致！スコア: {current_score}")
                 break 
 
             # 2. 部分一致 (ユーザー入力が予報区名・かなに含まれる)
             if normalized_input in normalized_c20_name:
                 match_len = len(normalized_input)
                 current_score = max(current_score, 50 + match_len)
+                print(f"DEBUG:     予報区名に部分一致。現在のスコア: {current_score}")
             elif normalized_input in normalized_c20_kana:
                 match_len = len(normalized_input)
                 current_score = max(current_score, 30 + match_len)
+                print(f"DEBUG:     かなに部分一致。現在のスコア: {current_score}")
             
             # 3. 部分一致 (予報区名・かながユーザー入力に含まれる)
             if normalized_c20_name in normalized_input:
                 match_len = len(normalized_c20_name)
                 current_score = max(current_score, 40 + match_len)
+                print(f"DEBUG:     入力に予報区名が部分一致。現在のスコア: {current_score}")
             elif normalized_c20_kana in normalized_input:
                 match_len = len(normalized_c20_kana)
                 current_score = max(current_score, 20 + match_len)
+                print(f"DEBUG:     入力にかなが部分一致。現在のスコア: {current_score}")
             
             if current_score > best_match_score:
                 best_match_score = current_score
                 best_match_area = {'code': c20_code, 'name': c20_name}
+                print(f"DEBUG:     新しい最良候補を発見。スコア: {best_match_score}")
 
         if best_match_area:
             found_area_code = best_match_area['code']
@@ -242,8 +252,6 @@ def get_jma_area_info(city_name_input):
             print(f"DEBUG: '{city_name_input}' に対して最適なJMA予報区: '{found_area_name}' ({found_area_code}, スコア: {best_match_score}) を見つけました。")
         
         if not found_area_code and related_class20s_codes:
-            # 最適なマッチが見つからず、かつデフォルトの予報区が存在する場合
-            # 最初の予報区コードを使用 (多くの場合、県庁所在地などその県の代表的な予報区)
             found_area_code = related_class20s_codes[0]
             found_area_name = JMA_AREA_DATA["class20s"].get(found_area_code, {}).get("name", "不明な地域")
             print(f"DEBUG: '{city_name_input}' の具体的なclass20s予報区が見つかりませんでした。最初の予報区 '{found_area_name}' ({found_area_code}) を使用します。")
@@ -282,14 +290,12 @@ def get_jma_forecast_message_dict(office_code, area_code, area_name):
         
         time_series = data[0]["timeSeries"]
         
-        # 天気情報の抽出 (より安全に)
         weather_area = next((area for area in time_series[0]["areas"] if area["area"]["code"] == area_code), None)
         today_weather = "情報なし"
         if weather_area and "weathers" in weather_area and len(weather_area["weathers"]) > 0:
             today_weather = weather_area["weathers"][0].replace("　", " ").strip()
         print(f"DEBUG: 抽出された天気: {today_weather}")
 
-        # 降水確率の抽出 (より安全に)
         pops_area = next((area for area in time_series[1]["areas"] if area["area"]["code"] == area_code), time_series[1]["areas"][0] if len(time_series[1]["areas"]) > 0 else None)
         
         pop_today = "---"
@@ -301,18 +307,16 @@ def get_jma_forecast_message_dict(office_code, area_code, area_name):
                 pop_today = pops[0]
         print(f"DEBUG: 抽出された降水確率: {pop_today}%")
 
-        # 最高・最低気温の抽出 (より安全に)
         temp_area = next((area for area in time_series[2]["areas"] if area["area"]["code"] == area_code), None)
         temp_max = "---"
         temp_min = "---"
         if temp_area and "temps" in temp_area:
-            if len(temp_area["temps"]) > 0 and str(temp_area["temps"][0]).strip().replace('.', '').isdigit(): # 小数点を含む数値も考慮
-                temp_max = str(int(float(temp_area["temps"][0]))) # 整数に変換
+            if len(temp_area["temps"]) > 0 and str(temp_area["temps"][0]).strip().replace('.', '').isdigit():
+                temp_max = str(int(float(temp_area["temps"][0])))
             if len(temp_area["temps"]) > 1 and str(temp_area["temps"][1]).strip().replace('.', '').isdigit():
                 temp_min = str(int(float(temp_area["temps"][1])))
         print(f"DEBUG: 抽出された最高気温: {temp_max}°C, 最低気温: {temp_min}°C")
 
-        # Flex Messageの構造を定義
         flex_message = {
             "type": "flex", "altText": f"{area_name}の天気予報 (気象庁)",
             "contents": { "type": "bubble", "direction": 'ltr',
@@ -347,7 +351,7 @@ def get_jma_forecast_message_dict(office_code, area_code, area_name):
         print(f"ERROR: JMA天気予報APIへのリクエストエラー: {e}")
         return {"type": "text", "text": "気象庁からの天気情報取得に失敗しました。(APIリクエストエラー)"}
     except json.JSONDecodeError as e:
-        print(f"ERROR: JMA天気予報APIの応答JSONデコードエラー: {e}")
+        print(f"ERROR: JMA天気予予報APIの応答JSONデコードエラー: {e}")
         return {"type": "text", "text": "気象庁からの天気情報取得に失敗しました。(JSON形式エラー)"}
     except Exception as e:
         print(f"ERROR: JMA天気予報取得処理中の予期せぬエラー: {e}")
