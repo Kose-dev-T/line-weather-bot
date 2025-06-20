@@ -1,58 +1,74 @@
-import os
-from sqlalchemy import create_engine, text
+import sqlite3
 
-DATABASE_URL = os.environ.get('DATABASE_URL')
-
-# RenderのURL(postgres://)を、SQLAlchemyがpsycopg2を確実に使うための形式に書き換える
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
-
-engine = create_engine(DATABASE_URL) if DATABASE_URL else None
+DB_NAME = "weather_bot.db"
 
 def init_db():
-    if not engine:
-        print("DATABASE_URL is not set. Skipping DB initialization.")
-        return
-    
-    with engine.connect() as connection:
-        connection.execute(text('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id TEXT PRIMARY KEY,
-                state TEXT,
-                city_name TEXT,
-                lat REAL,
-                lon REAL
-            )
-        '''))
-        connection.commit()
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id TEXT PRIMARY KEY,
+            city_name TEXT,
+            city_code TEXT,
+            lat REAL,
+            lon REAL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def set_user_location(user_id, city_name, city_code, lat=None, lon=None):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO users (user_id, city_name, city_code, lat, lon)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            city_name=excluded.city_name,
+            city_code=excluded.city_code,
+            lat=excluded.lat,
+            lon=excluded.lon
+    """, (user_id, city_name, city_code, lat, lon))
+    conn.commit()
+    conn.close()
+
+def get_user_location(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT city_name, city_code, lat, lon FROM users WHERE user_id = ?", (user_id,))
+    result = c.fetchone()
+    conn.close()
+    if result:
+        return {
+            "city_name": result[0],
+            "city_code": result[1],
+            "lat": result[2],
+            "lon": result[3]
+        }
+    return None
 
 def set_user_state(user_id, state):
-    if not engine: return
-    with engine.connect() as connection:
-        connection.execute(text("""
-            INSERT INTO users (user_id, state) VALUES (:user_id, :state)
-            ON CONFLICT(user_id) DO UPDATE SET state = :state
-        """), {"user_id": user_id, "state": state})
-        connection.commit()
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS user_states (
+            user_id TEXT PRIMARY KEY,
+            state TEXT
+        )
+    """)
+    c.execute("""
+        INSERT INTO user_states (user_id, state)
+        VALUES (?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            state=excluded.state
+    """, (user_id, state))
+    conn.commit()
+    conn.close()
 
 def get_user_state(user_id):
-    if not engine: return None
-    with engine.connect() as connection:
-        result = connection.execute(text("SELECT state FROM users WHERE user_id = :user_id"), {"user_id": user_id}).fetchone()
-        return result[0] if result else None
-
-def set_user_location(user_id, city_name, lat, lon):
-    if not engine: return
-    with engine.connect() as connection:
-        connection.execute(text("""
-            INSERT INTO users (user_id, state, city_name, lat, lon) VALUES (:user_id, 'normal', :city_name, :lat, :lon)
-            ON CONFLICT(user_id) DO UPDATE SET 
-                state = 'normal', city_name = :city_name, lat = :lat, lon = :lon
-        """), {"user_id": user_id, "city_name": city_name, "lat": lat, "lon": lon})
-        connection.commit()
-
-def get_all_users_with_location():
-    if not engine: return []
-    with engine.connect() as connection:
-        result = connection.execute(text("SELECT user_id, city_name, lat, lon FROM users WHERE city_name IS NOT NULL")).fetchall()
-        return result
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT state FROM user_states WHERE user_id = ?", (user_id,))
+    result = c.fetchone()
+    conn.close()
+    return result[0] if result else None

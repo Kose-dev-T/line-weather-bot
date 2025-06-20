@@ -4,92 +4,65 @@ import json
 from datetime import datetime
 from dotenv import load_dotenv
 import database
+import xml.etree.ElementTree as ET
 
 load_dotenv()
-CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
-OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
-def get_daily_forecast_message_dict(lat, lon, city_name):
-    # (app.pyと同じ関数)
-    api_url = "https://api.openweathermap.org/data/2.5/forecast"
-    params = {"lat": lat, "lon": lon, "appid": OPENWEATHER_API_KEY, "units": "metric", "lang": "ja"}
+# --- 地域コード取得 ---
+def fetch_city_code_map():
+    url = "https://weather.tsukumijima.net/primary_area.xml"
     try:
-        response = requests.get(api_url, params=params)
+        response = requests.get(url)
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+        city_map = {}
+        for pref in root.findall(".//pref"):
+            for area in pref.findall("area"):
+                for info in area.findall("info"):
+                    city_name = info.find("city").text
+                    city_code = info.get("id")
+                    city_map[city_name] = city_code
+        return city_map
+    except Exception as e:
+        print(f"XML取得エラー: {e}")
+        return {}
+
+CITY_CODE_MAP = fetch_city_code_map()
+
+def get_city_code(city_name):
+    return CITY_CODE_MAP.get(city_name)
+
+def get_daily_forecast(city_code, city_name):
+    api_url = f"https://weather.tsukumijima.net/api/forecast/city/{city_code}"
+    try:
+        response = requests.get(api_url)
         response.raise_for_status()
         data = response.json()
-        today_str = datetime.now().strftime('%Y-%m-%d')
-        temp_max, temp_min, pop = -1000, 1000, 0
-        weather_descriptions = []
-        for forecast in data["list"]:
-            if today_str in forecast["dt_txt"]:
-                temp_max = max(temp_max, forecast["main"]["temp_max"])
-                temp_min = min(temp_min, forecast["main"]["temp_min"])
-                pop = max(pop, forecast["pop"])
-                if forecast["weather"][0]["description"] not in weather_descriptions:
-                    weather_descriptions.append(forecast["weather"][0]["description"])
-        pop_percent = pop * 100
-        description = " / ".join(weather_descriptions) if weather_descriptions else "情報なし"
-        flex_message = {
-            "type": "flex", "altText": f"{city_name}の天気予報", "contents": { "type": "bubble", "direction": 'ltr',
-                "header": {"type": "box", "layout": "vertical", "contents": [
-                    {"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}
-                ], "backgroundColor": "#27A5F9", "paddingTop": "12px", "paddingBottom": "12px"},
-                "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
-                    {"type": "box", "layout": "vertical", "contents": [
-                        {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#1DB446"},
-                        {"type": "text", "text": datetime.now().strftime('%Y年%m月%d日'), "size": "sm", "color": "#AAAAAA"}]},
-                    {"type": "separator", "margin": "md"},
-                    {"type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [
-                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "天気", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": description, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
-                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "最高気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{temp_max:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
-                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "最低気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{temp_min:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
-                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "降水確率", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{pop_percent:.0f}%", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]}
-                    ]}
-                ]}
-            }
-        }
-        return flex_message
+
+        forecast = data["forecasts"][0]
+        telop = forecast["telop"]
+        temp_max = forecast["temperature"]["max"]["celsius"] or "情報なし"
+        temp_min = forecast["temperature"]["min"]["celsius"] or "情報なし"
+        description = data["description"]["text"]
+
+        message = f"{city_name}の天気予報（{datetime.now().strftime('%Y年%m月%d日')}）\n"
+        message += f"天気: {telop}\n"
+        message += f"最高気温: {temp_max}°C\n"
+        message += f"最低気温: {temp_min}°C\n"
+        message += f"{description}"
+        return message
     except Exception as e:
-        print(f"Forecast API Error or Flex Message creation error: {e}")
-        return {"type": "text", "text": "天気情報の取得に失敗しました。"}
+        print(f"天気取得エラー: {e}")
+        return "天気情報の取得に失敗しました。"
 
-def push_to_line(user_id, messages):
-    headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
-    body = {"to": user_id, "messages": messages}
-    try:
-        response = requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
-        response.raise_for_status()
-        print(f"ユーザー({user_id})への通知が成功しました。")
-    except requests.exceptions.RequestException as e:
-        print(f"ユーザー({user_id})へのLINE通知エラー: {e}")
-        if e.response: print(f"応答内容: {e.response.text}")
-
-def send_daily_forecasts():
-    print("デイリー通知の送信を開始します...")
-    database.init_db()
-    users = database.get_all_users_with_location()
-    
-    if not users:
-        print("通知対象のユーザーが見つかりませんでした。")
-    
+def send_daily_notifications():
+    users = database.get_all_users()
     for user in users:
-        user_id, city_name, lat, lon = user
-        print(f"{city_name}({user_id})の天気予報を送信中...")
-        forecast_message = get_daily_forecast_message_dict(lat, lon, city_name)
-        push_to_line(user_id, [forecast_message]) # 変更: スタンプ送信をやめ、Flex Messageだけを送る
-            
-    print("デイリー通知の送信が完了しました。")
+        user_id = user["user_id"]
+        city_name = user["city_name"]
+        city_code = user["city_code"]
+        message = get_daily_forecast(city_code, city_name)
+        print(f"送信先: {user_id}\n{message}\n")
 
 if __name__ == "__main__":
-    if not all([CHANNEL_ACCESS_TOKEN, OPENWEATHER_API_KEY]):
-        print("エラー: .envファイルに必要なキーが設定されていないか、環境変数から読み込めていません。")
-    else:
-        send_daily_forecasts()
+    send_daily_notifications()
