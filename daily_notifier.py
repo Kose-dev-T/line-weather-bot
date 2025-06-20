@@ -4,11 +4,24 @@ import json
 from datetime import datetime
 from dotenv import load_dotenv
 import database
+import sys # sysモジュールをインポート
 
 # --- 初期設定 ---
 load_dotenv()
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
+
+# 環境変数がすべて設定されているか確認
+if not all([CHANNEL_ACCESS_TOKEN, OPENWEATHER_API_KEY]):
+    missing_vars = []
+    if not CHANNEL_ACCESS_TOKEN:
+        missing_vars.append("LINE_CHANNEL_ACCESS_TOKEN")
+    if not OPENWEATHER_API_KEY:
+        missing_vars.append("OPENWEATHER_API_KEY")
+    
+    error_message = f"エラー: .envファイルまたは環境変数に以下のキーが設定されていません: {', '.join(missing_vars)}"
+    print(error_message, file=sys.stderr)
+    sys.exit(1) # スクリプトを終了
 
 # --- グローバル変数 ---
 JMA_AREA_DATA = None
@@ -250,8 +263,8 @@ def send_daily_forecasts():
     print("デイリー通知の送信が完了しました。")
 
 if __name__ == "__main__":
-    # 環境変数が設定されているか確認
+    # 環境変数が設定されているか確認 (app.pyで既にチェックしているため、ここでは簡略化)
     if not all([CHANNEL_ACCESS_TOKEN, OPENWEATHER_API_KEY]):
-        print("エラー: .envファイルに必要なキーが設定されていません。")
+        print("エラー: .envファイルに必要なキーが設定されていません。デイリー通知は実行されません。", file=sys.stderr)
     else:
         send_daily_forecasts()

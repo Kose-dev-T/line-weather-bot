@@ -8,6 +8,7 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent, P
 from datetime import datetime
 from dotenv import load_dotenv
 import database
+import sys # sysモジュールをインポート
 
 # --- 初期設定 ---
 load_dotenv()
@@ -16,8 +17,23 @@ with app.app_context():
     database.init_db()
 
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
-CHANNEL_SECRET = os.environ.get("LINE_SECRET") # 環境変数のキーがLINE_SECRETである可能性も考慮
+# LINE_CHANNEL_SECRET または LINE_SECRET のどちらかで設定されている可能性を考慮
+CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET") or os.environ.get("LINE_SECRET")
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
+
+# 環境変数がすべて設定されているか確認
+if not all([CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET, OPENWEATHER_API_KEY]):
+    missing_vars = []
+    if not CHANNEL_ACCESS_TOKEN:
+        missing_vars.append("LINE_CHANNEL_ACCESS_TOKEN")
+    if not CHANNEL_SECRET:
+        missing_vars.append("LINE_CHANNEL_SECRET (または LINE_SECRET)")
+    if not OPENWEATHER_API_KEY:
+        missing_vars.append("OPENWEATHER_API_KEY")
+    
+    error_message = f"エラー: 以下の環境変数が設定されていません。Renderの環境変数設定を確認してください: {', '.join(missing_vars)}"
+    print(error_message, file=sys.stderr) # 標準エラー出力にエラーメッセージを出力
+    sys.exit(1) # アプリケーションを終了 (RenderのGunicornがエラーを検知しやすくなる)
 
 handler = WebhookHandler(CHANNEL_SECRET)
 
