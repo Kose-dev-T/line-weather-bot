@@ -1,19 +1,17 @@
 import os
 from sqlalchemy import create_engine, text
 
-# Renderの環境変数からデータベースURLを取得
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
+# RenderのURL(postgres://)を、SQLAlchemyがpsycopg2を確実に使うための形式に書き換える
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 
-# データベースエンジンを作成
 engine = create_engine(DATABASE_URL) if DATABASE_URL else None
 
 def init_db():
-    """データベースとテーブルを初期化（なければ作成）する関数"""
     if not engine:
-        print("データベースURLが設定されていないため、初期化をスキップします。")
+        print("DATABASE_URL is not set. Skipping DB initialization.")
         return
     
     with engine.connect() as connection:
@@ -29,7 +27,6 @@ def init_db():
         connection.commit()
 
 def set_user_state(user_id, state):
-    """ユーザーの状態を設定する関数"""
     if not engine: return
     with engine.connect() as connection:
         connection.execute(text("""
@@ -39,14 +36,12 @@ def set_user_state(user_id, state):
         connection.commit()
 
 def get_user_state(user_id):
-    """ユーザーの状態を取得する関数"""
     if not engine: return None
     with engine.connect() as connection:
         result = connection.execute(text("SELECT state FROM users WHERE user_id = :user_id"), {"user_id": user_id}).fetchone()
         return result[0] if result else None
 
 def set_user_location(user_id, city_name, lat, lon):
-    """ユーザーの登録地と状態を更新する関数"""
     if not engine: return
     with engine.connect() as connection:
         connection.execute(text("""
@@ -57,7 +52,6 @@ def set_user_location(user_id, city_name, lat, lon):
         connection.commit()
 
 def get_all_users_with_location():
-    """登録地がある全ユーザーの情報を取得する関数（自動通知用）"""
     if not engine: return []
     with engine.connect() as connection:
         result = connection.execute(text("SELECT user_id, city_name, lat, lon FROM users WHERE city_name IS NOT NULL")).fetchall()
