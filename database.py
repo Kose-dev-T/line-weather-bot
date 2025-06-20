@@ -1,13 +1,25 @@
-import sqlite3
+import os
+from sqlalchemy import create_engine, text
 
-DATABASE_FILE = "weather_bot.db"
+# Renderの環境変数からデータベースURLを取得
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+# 【重要】RenderのURL(postgres://)を、新しいライブラリ(psycopg)と
+# SQLAlchemyが正しく認識できる形式(postgresql+psycopg://)に書き換える
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+
+# データベースエンジンを作成。もしDATABASE_URLがなければ、Noneのまま
+engine = create_engine(DATABASE_URL) if DATABASE_URL else None
 
 def init_db():
     """データベースとテーブルを初期化（なければ作成）する関数"""
-    with sqlite3.connect(DATABASE_FILE) as con:
-        cur = con.cursor()
-        # usersテーブル: ユーザーID、状態、登録地名、緯度、経度を保存
-        cur.execute('''
+    if not engine:
+        print("データベースURLが設定されていないため、初期化をスキップします。")
+        return
+    
+    with engine.connect() as connection:
+        connection.execute(text('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id TEXT PRIMARY KEY,
                 state TEXT,
@@ -15,44 +27,46 @@ def init_db():
                 lat REAL,
                 lon REAL
             )
-        ''')
-        con.commit()
+        '''))
+        connection.commit()
 
 def set_user_state(user_id, state):
     """ユーザーの状態（例: 'waiting_for_location'）を設定する関数"""
-    with sqlite3.connect(DATABASE_FILE) as con:
-        cur = con.cursor()
-        cur.execute("INSERT OR REPLACE INTO users (user_id, state) VALUES (?, ?)", (user_id, state))
-        con.commit()
+    if not engine: return
+
+    with engine.connect() as connection:
+        # 状態だけを更新、または新しいユーザーを作成
+        connection.execute(text("""
+            INSERT INTO users (user_id, state) VALUES (:user_id, :state)
+            ON CONFLICT(user_id) DO UPDATE SET state = :state
+        """), {"user_id": user_id, "state": state})
+        connection.commit()
 
 def get_user_state(user_id):
     """ユーザーの状態を取得する関数"""
-    with sqlite3.connect(DATABASE_FILE) as con:
-        cur = con.cursor()
-        cur.execute("SELECT state FROM users WHERE user_id = ?", (user_id,))
-        result = cur.fetchone()
+    if not engine: return None
+
+    with engine.connect() as connection:
+        result = connection.execute(text("SELECT state FROM users WHERE user_id = :user_id"), {"user_id": user_id}).fetchone()
         return result[0] if result else None
 
 def set_user_location(user_id, city_name, lat, lon):
     """ユーザーの登録地と、状態を'normal'にリセットする関数"""
-    with sqlite3.connect(DATABASE_FILE) as con:
-        cur = con.cursor()
-        cur.execute('''
-            INSERT OR REPLACE INTO users (user_id, state, city_name, lat, lon) 
-            VALUES (?, 'normal', ?, ?, ?)
-        ''', (user_id, city_name, lat, lon))
-        con.commit()
+    if not engine: return
 
-def get_user_location(user_id):
-    """ユーザーの登録地を取得する関数"""
-    with sqlite3.connect(DATABASE_FILE) as con:
-        cur = con.cursor()
-        cur.execute("SELECT city_name, lat, lon FROM users WHERE user_id = ?", (user_id,))
-        return cur.fetchone()
-        
+    with engine.connect() as connection:
+        # 地点情報と、状態を'normal'にリセット
+        connection.execute(text("""
+            INSERT INTO users (user_id, state, city_name, lat, lon) VALUES (:user_id, 'normal', :city_name, :lat, :lon)
+            ON CONFLICT(user_id) DO UPDATE SET 
+                state = 'normal', city_name = :city_name, lat = :lat, lon = :lon
+        """), {"user_id": user_id, "city_name": city_name, "lat": lat, "lon": lon})
+        connection.commit()
+
 def get_all_users_with_location():
     """登録地がある全ユーザーの情報を取得する関数（自動通知用）"""
-    with sqlite3.connect(DATABASE_FILE) as con:
-        cur = con.cursor()
-        cur.execute("SELECT user_id, city_name, lat, lon FROM users WHERE city_name IS NOT NULL")
-        return cur.fetchall()
+    if not engine: return []
+
+    with engine.connect() as connection:
+        result = connection.execute(text("SELECT user_id, city_name, lat, lon FROM users WHERE city_name IS NOT NULL")).fetchall()
+        return result
