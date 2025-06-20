@@ -93,14 +93,25 @@ def get_daily_forecast_message_dict(lat, lon, city_name):
         print(f"Forecast API Error or Flex Message creation error: {e}")
         return {"type": "text", "text": "天気情報の取得に失敗しました。"}
 
-def get_weather_sticker_message(weather_description):
-    if "晴" in weather_description: package_id, sticker_id = "11537", "52002734"
-    elif "曇" in weather_description: package_id, sticker_id = "11537", "52002748"
-    elif "雨" in weather_description: package_id, sticker_id = "11538", "51626501"
-    elif "雪" in weather_description: package_id, sticker_id = "11538", "51626522"
-    else: package_id, sticker_id = "11537", "52002735"
-    return {"type": "sticker", "packageId": str(package_id), "stickerId": str(sticker_id)}
-
+def get_weather_sticker(weather_description):
+    """天気の説明文から、送信するLINEスタンプのIDを返す関数（改良版）"""
+    # より具体的なキーワードを先に判定することで、精度を上げます
+    if "快晴" in weather_description or "晴天" in weather_description:
+        # 「快晴」や「晴天」なら、間違いなく晴れ
+        return {"package_id": "11537", "sticker_id": "52002734"} # 太陽
+    elif "雨" in weather_description:
+        return {"package_id": "11538", "sticker_id": "51626501"} # 傘
+    elif "雪" in weather_description:
+        return {"package_id": "11538", "sticker_id": "51626522"} # 雪だるま
+    elif "曇" in weather_description:
+        # 「晴れ時々曇り」なども考慮し、「曇」は優先度を少し下げる
+        return {"package_id": "11537", "sticker_id": "52002748"} # 雲
+    elif "晴" in weather_description:
+        # 「快晴」ではないが「晴れ」が含まれる場合
+        return {"package_id": "11537", "sticker_id": "52002734"} # 太陽
+    else:
+        # 上記以外の場合は、デフォルトのスタンプを返す
+        return {"package_id": "11537", "sticker_id": "52002735"} # OK
 def reply_to_line(reply_token, messages):
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
     body = {"replyToken": reply_token, "messages": messages}
@@ -156,8 +167,7 @@ def handle_message(event):
             forecast_message = get_daily_forecast_message_dict(coords_data["lat"], coords_data["lon"], coords_data["name"])
             if forecast_message.get("type") == "flex":
                 weather_description = forecast_message["contents"]["body"]["contents"][2]["contents"][0]["contents"][1]["text"]
-                print(f"【デバッグ用ログ】APIが返した天気: '{weather_description}'")
-                sticker_message = get_weather_sticker_message(weather_description)
+                sticker_message = get_weather_sticker(weather_description)
                 messages_to_send.append(sticker_message)
             messages_to_send.append(forecast_message)
         else:
