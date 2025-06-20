@@ -41,32 +41,32 @@ handler = WebhookHandler(CHANNEL_SECRET)
 JMA_AREA_DATA = None
 
 # 特定の市区町村から都道府県を推測するためのマップ (OpenWeatherMapのstateが空の場合の補完用)
-# キーはnormalize_place_name()で処理された後の形に合わせる（小文字のローマ字）
+# キーはnormalize_place_name()で処理された後の形に合わせる（接尾辞除去・小文字の日本語）
 PREFECTURE_GUESS_MAP = {
     # 北海道
-    "sapporo": "北海道", "asahikawa": "北海道", "hakodate": "北海道",
+    "札幌": "北海道", "旭川": "北海道", "函館": "北海道",
     # 東北
-    "aomori": "青森県", "morioka": "岩手県", "sendai": "宮城県", "akita": "秋田県", "yamagata": "山形県", "fukushima": "福島県",
+    "青森": "青森県", "盛岡": "岩手県", "仙台": "宮城県", "秋田": "秋田県", "山形": "山形県", "福島": "福島県",
     # 関東
-    "mito": "茨城県", "utsunomiya": "栃木県", "maebashi": "群馬県", "saitama": "埼玉県", "chiba": "千葉県", "tokyo": "東京都", 
-    "shinjuku": "東京都", "chiyoda": "東京都", "chuo": "東京都", "minato": "東京都", "shibuya": "東京都", "ota": "東京都", 
-    "yokohama": "神奈川県", "kawasaki": "神奈川県", "sagamihara": "神奈川県",
+    "水戸": "茨城県", "宇都宮": "栃木県", "前橋": "群馬県", "さいたま": "埼玉県", "千葉": "千葉県", "東京": "東京都", 
+    "新宿": "東京都", "千代田": "東京都", "中央": "東京都", "港": "東京都", "渋谷": "東京都", "大田": "東京都", 
+    "横浜": "神奈川県", "川崎": "神奈川県", "相模原": "神奈川県",
     # 中部
-    "niigata": "新潟県", "toyama": "富山県", "kanazawa": "石川県", "fukui": "福井県", "kofu": "山梨県", "nagano": "長野県", "gifu": "岐阜県",
-    "shizuoka": "静岡県", "hamamatsu": "静岡県", "nagoya": "愛知県", "tsu": "三重県",
+    "新潟": "新潟県", "富山": "富山県", "金沢": "石川県", "福井": "福井県", "甲府": "山梨県", "長野": "長野県", "岐阜": "岐阜県",
+    "静岡": "静岡県", "浜松": "静岡県", "名古屋": "愛知県", "津": "三重県",
     # 関西
-    "otsu": "滋賀県", "oumihachiman": "滋賀県", "hikone": "滋賀県", "kusatsu": "滋賀県", 
-    "kyoto": "京都府", "osaka": "大阪府", "sakai": "大阪府", "higashiosaka": "大阪府",
-    "kobe": "兵庫県", "himeji": "兵庫県", "nishinomiya": "兵庫県",
-    "nara": "奈良県", "wakayama": "和歌山県",
+    "大津": "滋賀県", "近江八幡": "滋賀県", "彦根": "滋賀県", "草津": "滋賀県", 
+    "京都": "京都府", "大阪": "大阪府", "堺": "大阪府", "東大阪": "大阪府",
+    "神戸": "兵庫県", "姫路": "兵庫県", "西宮": "兵庫県",
+    "奈良": "奈良県", "和歌山": "和歌山県",
     # 中国
-    "tottori": "鳥取県", "matsue": "島根県", "okayama": "岡山県", "hiroshima": "広島県", "fukuyama": "広島県", "yamaguchi": "山口県",
+    "鳥取": "鳥取県", "松江": "島根県", "岡山": "岡山県", "広島": "広島県", "福山": "広島県", "山口": "山口県",
     # 四国
-    "tokushima": "徳島県", "takamatsu": "香川県", "matsuyama": "愛媛県", "kochi": "高知県",
+    "徳島": "徳島県", "高松": "香川県", "松山": "愛媛県", "高知": "高知県",
     # 九州・沖縄
-    "fukuoka": "福岡県", "kitakyushu": "福岡県", "kurume": "福岡県",
-    "saga": "佐賀県", "nagasaki": "長崎県", "kumamoto": "熊本県", "oita": "大分県", "miyazaki": "宮崎県", "kagoshima": "鹿児島県",
-    "naha": "沖縄県", "okinawa": "沖縄県", 
+    "福岡": "福岡県", "北九州": "福岡県", "久留米": "福岡県",
+    "佐賀": "佐賀県", "長崎": "長崎県", "熊本": "熊本県", "大分": "大分県", "宮崎": "宮崎県", "鹿児島": "鹿児島県",
+    "那覇": "沖縄県", "沖縄": "沖縄県", 
 }
 
 # --- 補助関数群 ---
@@ -75,22 +75,21 @@ def normalize_place_name(name):
     """
     地名から一般的な接尾辞を除去し、全角/半角スペースを削除して小文字に変換する。
     例: "大阪市" -> "大阪", "東京都" -> "東京", "札幌" -> "札幌"
-    ひらがなやカタカナもローマ字に変換するための追加ロジックを含まない。
-    単に指定された接尾辞を除去し、小文字化する。
+    漢字、ひらがな、カタカナの地名に対応し、ローマ字への変換は行わない。
     """
     if not isinstance(name, str):
         return ""
     
     normalized = name.replace(' ', '').replace('　', '')
     
+    # より多くの接尾辞を考慮し、順序も調整
     suffixes = ['市', '区', '町', '村', '郡', '都', '道', '府', '県', '地方', '部']
     for suffix in suffixes:
         if normalized.endswith(suffix):
             normalized = normalized[:-len(suffix)]
             return normalize_place_name(normalized) # 再帰的に呼び出し
     
-    # ひらがな/カタカナからローマ字への変換は行わない（JMAデータも日本語のため）
-    return normalized.lower() # ここは小文字化のみ維持
+    return normalized.lower() # 日本語のまま小文字化
 
 def get_jma_area_info(city_name_input):
     """
@@ -114,6 +113,7 @@ def get_jma_area_info(city_name_input):
         
         if not geo_data:
             print(f"DEBUG: OpenWeatherMapで'{city_name_input}'の地理情報が見つかりませんでした。")
+            # OpenWeatherMapで見つからない場合、都道府県マッピングで直接探す
             prefecture_jp = PREFECTURE_GUESS_MAP.get(normalize_place_name(city_name_input), None)
             if prefecture_jp:
                 print(f"DEBUG: 地名直接マッピングで都道府県 '{prefecture_jp}' を推測しました。")
@@ -351,7 +351,7 @@ def get_jma_forecast_message_dict(office_code, area_code, area_name):
         print(f"ERROR: JMA天気予報APIへのリクエストエラー: {e}")
         return {"type": "text", "text": "気象庁からの天気情報取得に失敗しました。(APIリクエストエラー)"}
     except json.JSONDecodeError as e:
-        print(f"ERROR: JMA天気予予報APIの応答JSONデコードエラー: {e}")
+        print(f"ERROR: JMA天気予報APIの応答JSONデコードエラー: {e}")
         return {"type": "text", "text": "気象庁からの天気情報取得に失敗しました。(JSON形式エラー)"}
     except Exception as e:
         print(f"ERROR: JMA天気予報取得処理中の予期せぬエラー: {e}")
