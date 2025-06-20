@@ -20,7 +20,7 @@ if not all([CHANNEL_ACCESS_TOKEN, OPENWEATHER_API_KEY]):
     if not OPENWEATHER_API_KEY:
         missing_vars.append("OPENWEATHER_API_KEY")
     
-    error_message = f"エラー: .envファイルまたは環境変数に以下のキーが設定されていません: {', '.join(missing_vars)}"
+    error_message = f"エラー: 以下の環境変数が設定されていません。Renderの環境変数設定を確認してください: {', '.join(missing_vars)}"
     print(error_message, file=sys.stderr)
     sys.exit(1)
 
@@ -39,7 +39,7 @@ PREFECTURE_GUESS_MAP = {
     "新宿": "東京都", "千代田": "東京都", "中央": "東京都", "港": "東京都", "渋谷": "東京都", "大田": "東京都", 
     "横浜": "神奈川県", "川崎": "神奈川県", "相模原": "神奈川県",
     # 中部
-    "新潟": "新潟県", "富山": "富山県", "金沢": "石川県", "福井": "福井県", "甲府": "山梨県", "長野": "長野県", "岐阜": "岐阜県",
+    "新潟": "新潟県", "富山": "富山県", "金沢": "石川県", "福井県": "福井県", "山梨県": "山梨県", "長野県": "長野県", "岐阜県": "岐阜県",
     "静岡": "静岡県", "浜松": "静岡県", "名古屋": "愛知県", "津": "三重県",
     # 関西
     "大津": "滋賀県", "近江八幡": "滋賀県", "彦根": "滋賀県", "草津": "滋賀県",
@@ -47,12 +47,12 @@ PREFECTURE_GUESS_MAP = {
     "神戸": "兵庫県", "姫路": "兵庫県", "西宮": "兵庫県",
     "奈良": "奈良県", "和歌山県": "和歌山県",
     # 中国
-    "鳥取": "鳥取県", "松江": "島根県", "岡山": "岡山県", "広島": "広島県", "福山": "広島県", "山口県": "山口県",
+    "鳥取": "鳥取県", "松江": "島根県", "岡山県": "岡山県", "広島県": "広島県", "福山": "広島県", "山口県": "山口県",
     # 四国
     "徳島": "徳島県", "高松": "香川県", "松山": "愛媛県", "高知": "高知県",
     # 九州・沖縄
     "福岡": "福岡県", "北九州": "福岡県", "久留米": "福岡県",
-    "佐賀": "佐賀県", "長崎": "長崎県", "熊本": "熊本県", "大分県": "大分県", "宮崎県": "宮崎県", "鹿児島県": "鹿児島県",
+    "佐賀": "佐賀県", "長崎": "長崎県", "熊本県": "熊本県", "大分県": "大分県", "宮崎県": "宮崎県", "鹿児島県": "鹿児島県",
     "那覇": "沖縄県", "沖縄": "沖縄県",
 }
 
@@ -62,13 +62,17 @@ PREFECTURE_GUESS_MAP = {
 def normalize_place_name(name):
     """
     地名から一般的な接尾辞を除去し、全角/半角スペースを削除して小文字に変換する。
+    さらに、括弧とその中の文字も除去する（例: "鹿児島県（奄美地方除く）" -> "鹿児島県"）。
     例: "大阪市" -> "大阪", "東京都" -> "東京", "札幌" -> "札幌"
     漢字、ひらがな、カタカナの地名に対応し、ローマ字への変換は行わない。
     """
     if not isinstance(name, str):
         return ""
     
-    normalized = name.replace(' ', '').replace('　', '')
+    # 括弧とその中の文字を除去
+    normalized = re.sub(r'（.*?）|\(.*?\)', '', name)
+    # 全角/半角スペースを削除
+    normalized = normalized.replace(' ', '').replace('　', '')
     
     suffixes = ['市', '区', '町', '村', '郡', '都', '道', '府', '県', '地方', '部']
     for suffix in suffixes:
@@ -77,6 +81,20 @@ def normalize_place_name(name):
             return normalize_place_name(normalized) # 再帰的に呼び出し
     
     return normalized.lower() # 日本語のまま小文字化
+
+# LINE Messaging APIを通じてユーザーにプッシュ通知を送信する関数 (send_daily_forecasts より前に定義)
+def push_to_line(user_id, messages):
+    """LINE Messaging APIを通じてユーザーにプッシュ通知を送信する関数"""
+    headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
+    body = {"to": user_id, "messages": messages}
+    try:
+        response = requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
+        response.raise_for_status()
+        print(f"ユーザー({user_id})への通知が成功しました。")
+    except requests.exceptions.RequestException as e:
+        print(f"ユーザー({user_id})へのLINE通知エラー: {e}")
+        if e.response: print(f"応答内容: {e.response.text}")
+
 
 def get_jma_area_info(city_name_input):
     """
@@ -159,7 +177,7 @@ def get_jma_area_info(city_name_input):
             "静岡県": "静岡", "愛知県": "名古屋", "三重県": "津", "滋賀県": "彦根", "京都府": "京都", "大阪府": "大阪", "兵庫県": "神戸",
             "奈良県": "奈良", "和歌山県": "和歌山", "鳥取県": "鳥取", "島根県": "松江", "岡山県": "岡山", "広島県": "広島", "山口県": "山口",
             "徳島県": "徳島", "香川県": "高松", "愛媛県": "松山", "高知県": "高知", "福岡県": "福岡", "北九州": "福岡県", "久留米": "福岡県",
-            "佐賀": "佐賀県", "長崎": "長崎県", "熊本": "熊本県", "大分県": "大分県", "宮崎県": "宮崎県", "鹿児島県": "鹿児島県",
+            "佐賀": "佐賀県", "長崎": "長崎県", "熊本県": "熊本県", "大分県": "大分県", "宮崎県": "宮崎県", "鹿児島県": "鹿児島県",
             "那覇": "沖縄県", "沖縄": "沖縄県",
         }
         
@@ -171,27 +189,32 @@ def get_jma_area_info(city_name_input):
         normalized_target_jma_office_name = normalize_place_name(target_jma_office_name)
         normalized_prefecture_jp = normalize_place_name(prefecture_jp)
 
-        print("DEBUG: JMA Offices Data Sample:")
-        for i, (code, info) in enumerate(JMA_AREA_DATA["offices"].items()):
-            if i >= 5: break 
-            print(f"  Code: {code}, Name: '{info.get('name', 'N/A')}'")
-
-
+        # 全てのオフィス名をチェックし、最も適切なものを見つける
+        # 北海道のように「地方」区分のオフィス名が多いケースにも対応
+        office_candidates = []
         for code, info in JMA_AREA_DATA["offices"].items():
             office_actual_name = info.get("name", "")
             normalized_office_actual_name = normalize_place_name(office_actual_name)
             
-            print(f"DEBUG: Comparing JMA office name '{office_actual_name}' (Normalized: '{normalized_office_actual_name}') with target '{target_jma_office_name}' (Normalized: '{normalized_target_jma_office_name}') and normalized prefecture '{normalized_prefecture_jp}'")
-            
+            # 短縮名（彦根、札幌など）との完全一致を優先
             if normalized_office_actual_name == normalized_target_jma_office_name:
-                office_code = code
-                print(f"DEBUG: Found office code '{office_code}' by direct office name match: '{office_actual_name}'")
-                break
+                office_candidates.append({'code': code, 'name': office_actual_name, 'score': 100})
+            # 都道府県名（滋賀、北海道など）との完全一致
             elif normalized_office_actual_name == normalized_prefecture_jp:
-                office_code = code
-                print(f"DEBUG: Found office code '{office_code}' by prefecture name match: '{office_actual_name}'")
-                break
-            
+                office_candidates.append({'code': code, 'name': office_actual_name, 'score': 90})
+            # 地方名を含むが、その地方が都道府県名を含む場合（例：JMAオフィス名「石狩・空知・後志地方」に対し、都道府県「北海道」）
+            elif normalized_prefecture_jp in normalized_office_actual_name:
+                office_candidates.append({'code': code, 'name': office_actual_name, 'score': 80 + len(normalized_prefecture_jp)})
+            # それ以外（デバッグ用）
+            else:
+                print(f"DEBUG: Not matching: JMA office name '{office_actual_name}' (Normalized: '{normalized_office_actual_name}') with target '{target_jma_office_name}' (Normalized: '{normalized_target_jma_office_name}') or normalized prefecture '{normalized_prefecture_jp}'")
+
+        if office_candidates:
+            # 最もスコアの高い候補を選択
+            best_office_candidate = max(office_candidates, key=lambda x: x['score'])
+            office_code = best_office_candidate['code']
+            print(f"DEBUG: Found office code '{office_code}' for office name '{best_office_candidate['name']}' (Score: {best_office_candidate['score']})")
+        
         if not office_code:
             print(f"エラー: 目標のJMAオフィス名 '{target_jma_office_name}'（正規化後: '{normalized_target_jma_office_name}'）または都道府県名 '{prefecture_jp}'（正規化後: '{normalized_prefecture_jp}'）に対応するオフィスコードが見つかりませんでした。")
             return None
@@ -220,12 +243,14 @@ def get_jma_area_info(city_name_input):
             
             current_score = -1
             
+            # 1. 完全一致
             if normalized_c20_name == normalized_input or normalized_c20_kana == normalized_input:
                 current_score = 100 
                 best_match_area = {'code': c20_code, 'name': c20_name}
                 print(f"DEBUG:     完全一致！スコア: {current_score}")
                 break 
 
+            # 2. 部分一致 (ユーザー入力が予報区名・かなに含まれる)
             if normalized_input in normalized_c20_name:
                 match_len = len(normalized_input)
                 current_score = max(current_score, 50 + match_len)
@@ -235,6 +260,7 @@ def get_jma_area_info(city_name_input):
                 current_score = max(current_score, 30 + match_len)
                 print(f"DEBUG:     かなに部分一致。現在のスコア: {current_score}")
             
+            # 3. 部分一致 (予報区名・かながユーザー入力に含まれる)
             if normalized_c20_name in normalized_input:
                 match_len = len(normalized_c20_name)
                 current_score = max(current_score, 40 + match_len)
@@ -254,10 +280,24 @@ def get_jma_area_info(city_name_input):
             found_area_name = best_match_area['name']
             print(f"DEBUG: '{city_name_input}' に対して最適なJMA予報区: '{found_area_name}' ({found_area_code}, スコア: {best_match_score}) を見つけました。")
         
+        # 最適なマッチが見つからず、かつデフォルトの予報区が存在する場合
         if not found_area_code and related_class20s_codes:
-            found_area_code = related_class20s_codes[0]
-            found_area_name = JMA_AREA_DATA["class20s"].get(found_area_code, {}).get("name", "不明な地域")
-            print(f"DEBUG: '{city_name_input}' の具体的なclass20s予報区が見つかりませんでした。最初の予報区 '{found_area_name}' ({found_area_code}) を使用します。")
+            # 予報区のコードが250000（滋賀県）の場合のデフォルト名を "南部" に設定
+            if office_code == "250000": 
+                default_area_name = "南部" 
+                for c20_code_default in related_class20s_codes: 
+                    c20_info_default = JMA_AREA_DATA["class20s"].get(c20_code_default, {})
+                    if normalize_place_name(c20_info_default.get("name", "")) == normalize_place_name(default_area_name):
+                        found_area_code = c20_code_default
+                        found_area_name = c20_info_default.get("name")
+                        print(f"DEBUG: 特定のオフィスコードに対するデフォルト予報区として '{default_area_name}' ({found_area_code}) を使用します。")
+                        break
+            
+            # 特定のデフォルト名が見つからない場合は、引き続き最初の予報区を使用
+            if not found_area_code and related_class20s_codes: 
+                found_area_code = related_class20s_codes[0]
+                found_area_name = JMA_AREA_DATA["class20s"].get(found_area_code, {}).get("name", "不明な地域")
+                print(f"DEBUG: '{city_name_input}' の具体的なclass20s予報区が見つかりませんでした。最初の予報区 '{found_area_name}' ({found_area_code}) を使用します。")
 
         if not found_area_code:
             print(f"エラー: '{prefecture_jp}' のオフィス '{office_code}' に適切なJMA予報区 (class20s) が見つかりませんでした。")
@@ -276,7 +316,7 @@ def get_jma_area_info(city_name_input):
         return None
 
 
-def get_jma_forecast_message_dict(office_code, area_code, area_name):
+def get_jma_forecast_message_dict(office_code, area_code, area_name_from_jma, city_name_input): 
     """【気象庁データ版】指定されたコードの天気予報を取得する関数"""
     api_url = f"https://www.jma.go.jp/bosai/forecast/data/forecast/{office_code}.json"
     try:
@@ -320,15 +360,18 @@ def get_jma_forecast_message_dict(office_code, area_code, area_name):
                 temp_min = str(int(float(temp_area["temps"][1])))
         print(f"DEBUG: 抽出された最高気温: {temp_max}°C, 最低気温: {temp_min}°C")
 
+        # 予報区名が空文字列だった場合、代替として元の入力地名を使用
+        display_area_name = area_name_from_jma if area_name_from_jma else city_name_input
+
         flex_message = {
-            "type": "flex", "altText": f"{area_name}の天気予報 (気象庁)",
+            "type": "flex", "altText": f"{display_area_name}の天気予報 (気象庁)",
             "contents": { "type": "bubble", "direction": 'ltr',
                 "header": {"type": "box", "layout": "vertical", "contents": [
                     {"type": "text", "text": "今日の天気予報 (気象庁)", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}
                 ], "backgroundColor": "#27A5F9", "paddingTop": "12px", "paddingBottom": "12px", "cornerRadius": "md"},
                 "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
                     {"type": "box", "layout": "vertical", "contents": [
-                        {"type": "text", "text": area_name, "size": "lg", "weight": "bold", "color": "#1DB446"},
+                        {"type": "text", "text": display_area_name, "size": "lg", "weight": "bold", "color": "#1DB446"},
                         {"type": "text", "text": datetime.now().strftime('%Y年%m月%d日'), "size": "sm", "color": "#AAAAAA"}]},
                     {"type": "separator", "margin": "md"},
                     {"type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [
@@ -360,17 +403,16 @@ def get_jma_forecast_message_dict(office_code, area_code, area_name):
         print(f"ERROR: JMA天気予報取得処理中の予期せぬエラー: {e}")
         return {"type": "text", "text": "気象庁からの天気情報取得に失敗しました。(処理エラー)"}
 
-def push_to_line(user_id, messages):
-    """LINE Messaging APIを通じてユーザーにプッシュ通知を送信する関数"""
+def reply_to_line(reply_token, messages):
+    """LINE Messaging APIを通じてユーザーに返信する関数"""
     headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
-    body = {"to": user_id, "messages": messages}
+    body = {"replyToken": reply_token, "messages": messages}
     try:
-        response = requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
+        response = requests.post("https://api.line.me/v2/bot/message/reply", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
         response.raise_for_status()
-        print(f"ユーザー({user_id})への通知が成功しました。")
+        print("LINEへの返信が成功しました。")
     except requests.exceptions.RequestException as e:
-        print(f"ユーザー({user_id})へのLINE通知エラー: {e}")
-        if e.response: print(f"応答内容: {e.response.text}")
+        print(f"LINE返信エラー: {e}\n応答内容: {e.response.text if e.response else 'N/A'}")
 
 def send_daily_forecasts():
     """登録ユーザー全員にデイリー天気予報を送信する関数"""
@@ -390,12 +432,12 @@ def send_daily_forecasts():
             print(f"DEBUG: Unpacked user_id: {user_id}, city_name: {city_name}")
         else:
             print(f"ERROR: Unexpected user data format from database: {user}. Skipping this user.")
-            # push_to_line に user_id がないため、エラーメッセージを直接ログに出力するのみ
             continue # このユーザーはスキップして次のユーザーへ
 
         area_info = get_jma_area_info(city_name)
         if area_info:
-            forecast_message = get_jma_forecast_message_dict(area_info["office_code"], area_info["area_code"], area_info["area_name"])
+            # area_info["area_name"] と city_name を get_jma_forecast_message_dict に渡す
+            forecast_message = get_jma_forecast_message_dict(area_info["office_code"], area_info["area_code"], area_info["area_name"], city_name) 
             push_to_line(user_id, [forecast_message])
         else:
             print(f"「{city_name}」のエリア情報が見つからなかったため、送信をスキップします。")
