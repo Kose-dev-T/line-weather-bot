@@ -81,4 +81,9 @@ def handle_user_input(user_id, user_message):
         else:
             messages_to_send.append({"type": "text", "text": f"「{user_message}」という地名が見つかりませんでした。"})
 
+    if __name__ == "__main__":
+         port = int(os.environ.get("PORT", 5000))
+         app.run(host="0.0.0.0", port=port)
+
+
     return messages_to_send
