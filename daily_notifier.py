@@ -1,38 +1,104 @@
+# daily_notifier.py (真の最終完成版)
 import os
 import requests
 import json
+from datetime import datetime
 from dotenv import load_dotenv
 import database
-
-# --- 必要な部品をインポート ---
-# LINE Messaging API関連
-from linebot.v3.messaging import (
-    Configuration,
-    ApiClient,
-    MessagingApi,
-    PushMessageRequest,
-    TextMessage,
-    StickerSendMessage,
-    FlexSendMessage
-)
-# app.pyから天気予報とスタンプの関数を拝借
-from app import get_daily_forecast, get_weather_sticker
 
 # --- 初期設定 ---
 load_dotenv()
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
-# LINE Bot APIの準備
-configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
-api_client = ApiClient(configuration)
-line_bot_api = MessagingApi(api_client)
 
+# --- 補助関数群（app.pyから必要なものをコピー）---
+
+def get_daily_forecast_message(lat, lon, city_name):
+    """天気予報を取得し、LINE APIで使えるFlex MessageのJSON辞書を返す"""
+    api_url = "https://api.openweathermap.org/data/2.5/forecast"
+    params = {"lat": lat, "lon": lon, "appid": OPENWEATHER_API_KEY, "units": "metric", "lang": "ja"}
+    try:
+        response = requests.get(api_url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        temp_max, temp_min, pop = -1000, 1000, 0
+        weather_descriptions = []
+        for forecast in data["list"]:
+            if today_str in forecast["dt_txt"]:
+                temp_max = max(temp_max, forecast["main"]["temp_max"])
+                temp_min = min(temp_min, forecast["main"]["temp_min"])
+                pop = max(pop, forecast["pop"])
+                if forecast["weather"][0]["description"] not in weather_descriptions:
+                    weather_descriptions.append(forecast["weather"][0]["description"])
+        
+        pop_percent = pop * 100
+        description = " / ".join(weather_descriptions) if weather_descriptions else "情報なし"
+        
+        flex_message = {
+            "type": "flex",
+            "altText": f"{city_name}の天気予報",
+            "contents": { "type": "bubble", "direction": 'ltr',
+                "header": {"type": "box", "layout": "vertical", "contents": [{"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl"}]},
+                "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
+                    {"type": "box", "layout": "vertical", "contents": [
+                        {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#1DB446"},
+                        {"type": "text", "text": datetime.now().strftime('%Y年%m月%d日'), "size": "sm", "color": "#AAAAAA"}]},
+                    {"type": "separator", "margin": "md"},
+                    {"type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [
+                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
+                            {"type": "text", "text": "天気", "color": "#AAAAAA", "size": "sm", "flex": 2},
+                            {"type": "text", "text": description, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
+                            {"type": "text", "text": "最高気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
+                            {"type": "text", "text": f"{temp_max:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
+                            {"type": "text", "text": "最低気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
+                            {"type": "text", "text": f"{temp_min:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
+                            {"type": "text", "text": "降水確率", "color": "#AAAAAA", "size": "sm", "flex": 2},
+                            {"type": "text", "text": f"{pop_percent:.0f}%", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]}
+                    ]}
+                ]}
+            }
+        }
+        return flex_message
+    except Exception as e:
+        print(f"Forecast API Error or Flex Message creation error: {e}")
+        return {"type": "text", "text": "天気情報の取得に失敗しました。"}
+
+def get_weather_sticker_message(weather_description):
+    """天気の説明文から、LINE APIで使えるスタンプのJSON辞書を返す"""
+    if "晴" in weather_description:
+        package_id, sticker_id = "11537", "52002734"
+    elif "曇" in weather_description:
+        package_id, sticker_id = "11537", "52002748"
+    elif "雨" in weather_description:
+        package_id, sticker_id = "11538", "51626501"
+    elif "雪" in weather_description:
+        package_id, sticker_id = "11538", "51626522"
+    else:
+        package_id, sticker_id = "11537", "52002735"
+    
+    return {"type": "sticker", "packageId": str(package_id), "stickerId": str(sticker_id)}
+
+def push_to_line(user_id, messages):
+    """requestsを使って、指定したユーザーIDにプッシュ通知を送信する関数"""
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
+    body = {"to": user_id, "messages": messages}
+    try:
+        response = requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(body))
+        response.raise_for_status()
+        print(f"ユーザー({user_id})への通知が成功しました。")
+    except requests.exceptions.RequestException as e:
+        print(f"ユーザー({user_id})へのLINE通知エラー: {e}")
+        if e.response: print(f"応答内容: {e.response.text}")
 
 def send_daily_forecasts():
     """登録ユーザー全員に天気予報を通知するメイン関数"""
     print("デイリー通知の送信を開始します...")
-    
-    # データベースから登録ユーザーを取得
     users = database.get_all_users_with_location()
     
     if not users:
@@ -42,50 +108,24 @@ def send_daily_forecasts():
         user_id, city_name, lat, lon = user
         print(f"{city_name}({user_id})の天気予報を送信中...")
         
-        # 天気予報メッセージ（FlexSendMessageまたはTextMessage）を取得
-        forecast_object = get_daily_forecast(lat, lon, city_name)
+        forecast_message_dict = get_daily_forecast_message(lat, lon, city_name)
         
-        # --- スタンプと天気予報を一緒に送るロジック ---
         messages_to_send = []
+        if forecast_message_dict.get("type") == "flex":
+            weather_description = forecast_message_dict["contents"]["body"]["contents"][2]["contents"][0]["contents"][1]["text"]
+            sticker_message_dict = get_weather_sticker_message(weather_description)
+            messages_to_send.append(sticker_message_dict)
         
-        # forecast_objectがFlexSendMessageの場合のみ、スタンプを追加する
-        if isinstance(forecast_object, FlexSendMessage):
-            # FlexMessageから天気の説明文を抽出
-            weather_description = forecast_object.contents.body.contents[2].contents[0].contents[1].text
-            # 説明文に合ったスタンプを取得
-            sticker_info = get_weather_sticker(weather_description)
-            sticker_message = StickerSendMessage(
-                package_id=sticker_info["package_id"],
-                sticker_id=sticker_info["sticker_id"]
-            )
-            # 送信リストにスタンプを先に追加
-            messages_to_send.append(sticker_message)
+        messages_to_send.append(forecast_message_dict)
         
-        # 最後に、メインのメッセージ（FlexMessageまたはTextMessage）を追加
-        if forecast_object:
-            messages_to_send.append(forecast_object)
-
-        # 最終的なメッセージリストをプッシュ通知で送信
-        if messages_to_send:
-            try:
-                line_bot_api.push_message(
-                    PushMessageRequest(
-                        to=user_id,
-                        messages=messages_to_send
-                    )
-                )
-                print(f"ユーザー({user_id})への通知が成功しました。")
-            except Exception as e:
-                print(f"ユーザー({user_id})へのLINE通知エラー: {e}")
+        push_to_line(user_id, messages_to_send)
             
     print("デイリー通知の送信が完了しました。")
 
 # --- メインの実行部分 ---
 if __name__ == "__main__":
-    if not CHANNEL_ACCESS_TOKEN:
-        print("エラー: .envファイルにLINE_CHANNEL_ACCESS_TOKENが設定されていません。")
+    if not CHANNEL_ACCESS_TOKEN or not OPENWEATHER_API_KEY:
+        print("エラー: .envファイルに必要なキーが設定されていないか、環境変数から読み込めていません。")
     else:
-        # データベースを初期化
         database.init_db()
-        # 通知処理を開始
         send_daily_forecasts()
