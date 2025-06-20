@@ -156,6 +156,7 @@ def handle_message(event):
             forecast_message = get_daily_forecast_message_dict(coords_data["lat"], coords_data["lon"], coords_data["name"])
             if forecast_message.get("type") == "flex":
                 weather_description = forecast_message["contents"]["body"]["contents"][2]["contents"][0]["contents"][1]["text"]
+                print(f"【デバッグ用ログ】APIが返した天気: '{weather_description}'")
                 sticker_message = get_weather_sticker_message(weather_description)
                 messages_to_send.append(sticker_message)
             messages_to_send.append(forecast_message)
