@@ -4,12 +4,10 @@ from sqlalchemy import create_engine, text
 # Renderの環境変数からデータベースURLを取得
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# ▼▼▼【この一行が全ての鍵です】▼▼▼
-# RenderのURL(postgres://で始まる)を、SQLAlchemyが新しいライブラリ(psycopg)で
-# 認識できる形式(postgresql+psycopg://)に、プログラムで自動的に書き換えます。
+# 【重要】RenderのURL(postgres://)を、SQLAlchemyが認識できる形式(postgresql+psycopg2://)に書き換える
+# 注意：前回はpsycopgとしましたが、最終的にpsycopg2-binaryをインストールしたため、psycopg2と指定します。
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
-# ▲▲▲【この一行が全ての鍵です】▲▲▲
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 
 # データベースエンジンを作成。もしDATABASE_URLがなければ、Noneのまま
 engine = create_engine(DATABASE_URL) if DATABASE_URL else None
@@ -20,6 +18,7 @@ def init_db():
         print("データベースURLが設定されていないため、初期化をスキップします。")
         return
     
+    # このwithブロック全体がインデントされていることが重要です
     with engine.connect() as connection:
         connection.execute(text('''
             CREATE TABLE IF NOT EXISTS users (
@@ -32,9 +31,10 @@ def init_db():
         '''))
         connection.commit()
 
-# (これ以降の関数は、以前提示したものから変更ありません)
 def set_user_state(user_id, state):
+    """ユーザーの状態（例: 'waiting_for_location'）を設定する関数"""
     if not engine: return
+
     with engine.connect() as connection:
         connection.execute(text("""
             INSERT INTO users (user_id, state) VALUES (:user_id, :state)
@@ -43,23 +43,4 @@ def set_user_state(user_id, state):
         connection.commit()
 
 def get_user_state(user_id):
-    if not engine: return None
-    with engine.connect() as connection:
-        result = connection.execute(text("SELECT state FROM users WHERE user_id = :user_id"), {"user_id": user_id}).fetchone()
-        return result[0] if result else None
-
-def set_user_location(user_id, city_name, lat, lon):
-    if not engine: return
-    with engine.connect() as connection:
-        connection.execute(text("""
-            INSERT INTO users (user_id, state, city_name, lat, lon) VALUES (:user_id, 'normal', :city_name, :lat, :lon)
-            ON CONFLICT(user_id) DO UPDATE SET 
-                state = 'normal', city_name = :city_name, lat = :lat, lon = :lon
-        """), {"user_id": user_id, "city_name": city_name, "lat": lat, "lon": lon})
-        connection.commit()
-
-def get_all_users_with_location():
-    if not engine: return []
-    with engine.connect() as connection:
-        result = connection.execute(text("SELECT user_id, city_name, lat, lon FROM users WHERE city_name IS NOT NULL")).fetchall()
-        return result
+    """ユーザーの状態を取得する関数"""
