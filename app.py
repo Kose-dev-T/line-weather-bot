@@ -46,7 +46,6 @@ def get_daily_forecast_message_dict(lat, lon, city_name):
         response = requests.get(api_url, params=params)
         response.raise_for_status()
         data = response.json()
-        
         today_str = datetime.now().strftime('%Y-%m-%d')
         temp_max, temp_min, pop = -1000, 1000, 0
         weather_descriptions = []
@@ -57,7 +56,6 @@ def get_daily_forecast_message_dict(lat, lon, city_name):
                 pop = max(pop, forecast["pop"])
                 if forecast["weather"][0]["description"] not in weather_descriptions:
                     weather_descriptions.append(forecast["weather"][0]["description"])
-        
         pop_percent = pop * 100
         description = " / ".join(weather_descriptions) if weather_descriptions else "情報なし"
         
@@ -65,41 +63,32 @@ def get_daily_forecast_message_dict(lat, lon, city_name):
             "type": "flex", "altText": f"{city_name}の天気予報",
             "contents": {
                 "type": "bubble", "direction": 'ltr',
-                "header": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "contents": [
-                        {
-                            "type": "text",
-                            "text": "今日の天気予報",
-                            "weight": "bold",
-                            "size": "xl",
-                            "color": "#FFFFFF", # 文字色を白に
-                            "align": "center"  # 中央揃えに
-                        }
-                    ],
-                    "backgroundColor": "#27A5F9", # ヘッダーに背景色を追加
-                    "paddingTop": "12px",
-                    "paddingBottom": "12px"
-                },
+                "header": {"type": "box", "layout": "vertical", "contents": [
+                    {"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}
+                ], "backgroundColor": "#27A5F9", "paddingTop": "12px", "paddingBottom": "12px"},
                 "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
                     {"type": "box", "layout": "vertical", "contents": [
                         {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#1DB446"},
-                        {"type": "text", "text": datetime.now().strftime('%Y年%m月%d日'), "size": "sm", "color": "#AAAAAA"}]},
+                        {"type": "text", "text": datetime.now().strftime('%Y年%m月%d日'), "size": "sm", "color": "#AAAAAA"}
+                    ]},
                     {"type": "separator", "margin": "md"},
                     {"type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "天気", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": description, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                            {"type": "text", "text": description, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
+                        ]},
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "最高気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{temp_max:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                            {"type": "text", "text": f"{temp_max:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
+                        ]},
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "最低気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{temp_min:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                            {"type": "text", "text": f"{temp_min:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
+                        ]},
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "降水確率", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{pop_percent:.0f}%", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]}
+                            {"type": "text", "text": f"{pop_percent:.0f}%", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
+                        ]}
                     ]}
                 ]}
             }
@@ -109,34 +98,25 @@ def get_daily_forecast_message_dict(lat, lon, city_name):
         print(f"Forecast API Error or Flex Message creation error: {e}")
         return {"type": "text", "text": "天気情報の取得に失敗しました。"}
 
-def get_weather_sticker(weather_description):
-    """天気の説明文から、送信するLINEスタンプのIDを返す関数（改良版）"""
-    # より具体的なキーワードを先に判定することで、精度を上げます
-    if "快晴" in weather_description or "晴天" in weather_description:
-        # 「快晴」や「晴天」なら、間違いなく晴れ
-        return {"package_id": "11537", "sticker_id": "52002734"} # 太陽
-    elif "雨" in weather_description:
-        return {"package_id": "11538", "sticker_id": "51626501"} # 傘
-    elif "雪" in weather_description:
-        return {"package_id": "11538", "sticker_id": "51626522"} # 雪だるま
-    elif "曇" in weather_description:
-        # 「晴れ時々曇り」なども考慮し、「曇」は優先度を少し下げる
-        return {"package_id": "11537", "sticker_id": "52002748"} # 雲
-    elif "晴" in weather_description:
-        # 「快晴」ではないが「晴れ」が含まれる場合
-        return {"package_id": "11537", "sticker_id": "52002734"} # 太陽
-    else:
-        # 上記以外の場合は、デフォルトのスタンプを返す
-        return {"package_id": "11537", "sticker_id": "52002735"} # OK
+def get_weather_sticker_message(weather_description):
+    if "快晴" in weather_description or "晴天" in weather_description: package_id, sticker_id = "11537", "52002734"
+    elif "雨" in weather_description: package_id, sticker_id = "11538", "51626501"
+    elif "雪" in weather_description: package_id, sticker_id = "11538", "51626522"
+    elif "曇" in weather_description: package_id, sticker_id = "11537", "52002748"
+    elif "晴" in weather_description: package_id, sticker_id = "11537", "52002734"
+    else: package_id, sticker_id = "11537", "52002735"
+    return {"type": "sticker", "packageId": str(package_id), "stickerId": str(sticker_id)}
+
 def reply_to_line(reply_token, messages):
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
+    headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
     body = {"replyToken": reply_token, "messages": messages}
     try:
-        response = requests.post("https://api.line.me/v2/bot/message/reply", headers=headers, data=json.dumps(body))
+        response = requests.post("https://api.line.me/v2/bot/message/reply", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
+        print(f"--- LINE Reply API Response --- Status: {response.status_code}, Text: {response.text}")
         response.raise_for_status()
         print("LINEへの返信が成功しました。")
     except requests.exceptions.RequestException as e:
-        print(f"LINE返信エラー: {e}\n応答内容: {e.response.text if e.response else 'N/A'}")
+        print(f"LINE返信エラー: {e}")
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -183,7 +163,7 @@ def handle_message(event):
             forecast_message = get_daily_forecast_message_dict(coords_data["lat"], coords_data["lon"], coords_data["name"])
             if forecast_message.get("type") == "flex":
                 weather_description = forecast_message["contents"]["body"]["contents"][2]["contents"][0]["contents"][1]["text"]
-                sticker_message = get_weather_sticker(weather_description)
+                sticker_message = get_weather_sticker_message(weather_description)
                 messages_to_send.append(sticker_message)
             messages_to_send.append(forecast_message)
         else:

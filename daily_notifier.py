@@ -30,26 +30,10 @@ def get_daily_forecast_message_dict(lat, lon, city_name):
         pop_percent = pop * 100
         description = " / ".join(weather_descriptions) if weather_descriptions else "情報なし"
         flex_message = {
-            "type": "flex", "altText": f"{city_name}の天気予報",
-            "contents": {
-                "type": "bubble", "direction": 'ltr',
-                "header": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "contents": [
-                        {
-                            "type": "text",
-                            "text": "今日の天気予報",
-                            "weight": "bold",
-                            "size": "xl",
-                            "color": "#FFFFFF", # 文字色を白に
-                            "align": "center"  # 中央揃えに
-                        }
-                    ],
-                    "backgroundColor": "#27A5F9", # ヘッダーに背景色を追加
-                    "paddingTop": "12px",
-                    "paddingBottom": "12px"
-                },
+            "type": "flex", "altText": f"{city_name}の天気予報", "contents": { "type": "bubble", "direction": 'ltr',
+                "header": {"type": "box", "layout": "vertical", "contents": [
+                    {"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}
+                ], "backgroundColor": "#27A5F9", "paddingTop": "12px", "paddingBottom": "12px"},
                 "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
                     {"type": "box", "layout": "vertical", "contents": [
                         {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#1DB446"},
@@ -78,24 +62,24 @@ def get_daily_forecast_message_dict(lat, lon, city_name):
         return {"type": "text", "text": "天気情報の取得に失敗しました。"}
 
 def get_weather_sticker_message(weather_description):
-    # (app.pyと同じ関数)
-    if "晴" in weather_description: package_id, sticker_id = "11537", "52002734"
-    elif "曇" in weather_description: package_id, sticker_id = "11537", "52002748"
+    if "快晴" in weather_description or "晴天" in weather_description: package_id, sticker_id = "11537", "52002734"
     elif "雨" in weather_description: package_id, sticker_id = "11538", "51626501"
     elif "雪" in weather_description: package_id, sticker_id = "11538", "51626522"
+    elif "曇" in weather_description: package_id, sticker_id = "11537", "52002748"
+    elif "晴" in weather_description: package_id, sticker_id = "11537", "52002734"
     else: package_id, sticker_id = "11537", "52002735"
     return {"type": "sticker", "packageId": str(package_id), "stickerId": str(sticker_id)}
 
 def push_to_line(user_id, messages):
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
+    headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
     body = {"to": user_id, "messages": messages}
     try:
         response = requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
+        print(f"--- LINE Push API Response --- Status: {response.status_code}, Text: {response.text}")
         response.raise_for_status()
         print(f"ユーザー({user_id})への通知が成功しました。")
     except requests.exceptions.RequestException as e:
         print(f"ユーザー({user_id})へのLINE通知エラー: {e}")
-        if e.response: print(f"応答内容: {e.response.text}")
 
 def send_daily_forecasts():
     print("デイリー通知の送信を開始します...")
