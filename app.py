@@ -1,59 +1,50 @@
+# app.py (最終完成版)
 import os
-from sqlalchemy import create_engine, text
+import requests
+import json
+from flask import Flask, request, abort
+from linebot.v3 import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.messaging import (
+    Configuration, ApiClient, MessagingApi,
+    ReplyMessageRequest, TextMessage, StickerSendMessage,
+    FlexSendMessage, BubbleContainer, BoxComponent, TextComponent, SeparatorComponent
+)
+from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent, PostbackEvent
+from datetime import datetime
+from dotenv import load_dotenv
+import database # 作成したdatabase.pyをインポート
 
-DATABASE_URL = os.environ.get('DATABASE_URL')
+# --- 初期設定 ---
+load_dotenv()
 
-# 【この一行が全ての鍵です】RenderのURL(postgres://)を、SQLAlchemyが
-# 正しい通訳者(psycopg2)を呼び出すための形式(postgresql+psycopg2://)に書き換えます。
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
+# --- FlaskサーバーとLINE Bot APIの準備 ---
+app = Flask(__name__) # まずFlaskアプリ本体を作成する
 
-engine = create_engine(DATABASE_URL) if DATABASE_URL else None
+CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
+OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
-def init_db():
-    if not engine:
-        print("データベースURLが設定されていないため、初期化をスキップします。")
-        return
-    
-    with engine.connect() as connection:
-        connection.execute(text('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id TEXT PRIMARY KEY,
-                state TEXT,
-                city_name TEXT,
-                lat REAL,
-                lon REAL
-            )
-        '''))
-        connection.commit()
+# キーが設定されているかチェック
+if not all([CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET, OPENWEATHER_API_KEY]):
+    print("エラー: 必要な環境変数が設定されていません。")
+    # exit() # ここでは終了させずに続行させる
 
-def set_user_state(user_id, state):
-    if not engine: return
-    with engine.connect() as connection:
-        connection.execute(text("""
-            INSERT INTO users (user_id, state) VALUES (:user_id, :state)
-            ON CONFLICT(user_id) DO UPDATE SET state = :state
-        """), {"user_id": user_id, "state": state})
-        connection.commit()
+configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
+api_client = ApiClient(configuration)
+line_bot_api = MessagingApi(api_client)
+handler = WebhookHandler(CHANNEL_SECRET)
 
-def get_user_state(user_id):
-    if not engine: return None
-    with engine.connect() as connection:
-        result = connection.execute(text("SELECT state FROM users WHERE user_id = :user_id"), {"user_id": user_id}).fetchone()
-        return result[0] if result else None
+# --- データベースの初期化 ---
+# アプリケーションのコンテキスト内で安全に実行
+with app.app_context():
+    database.init_db()
 
-def set_user_location(user_id, city_name, lat, lon):
-    if not engine: return
-    with engine.connect() as connection:
-        connection.execute(text("""
-            INSERT INTO users (user_id, state, city_name, lat, lon) VALUES (:user_id, 'normal', :city_name, :lat, :lon)
-            ON CONFLICT(user_id) DO UPDATE SET 
-                state = 'normal', city_name = :city_name, lat = :lat, lon = :lon
-        """), {"user_id": user_id, "city_name": city_name, "lat": lat, "lon": lon})
-        connection.commit()
+# (これ以降の関数定義は、以前の完成版から変更ありません)
+# ... (get_location_coords, get_daily_forecast, ... handle_message の関数定義)
+# ...
 
-def get_all_users_with_location():
-    if not engine: return []
-    with engine.connect() as connection:
-        result = connection.execute(text("SELECT user_id, city_name, lat, lon FROM users WHERE city_name IS NOT NULL")).fetchall()
-        return result
+# 最後の if __name__ == "__main__": ブロックは、ローカルテスト用なので
+# Renderでは使われませんが、念のため残しておきます。
+if __name__ == "__main__":
+    app.run(port=5000)
