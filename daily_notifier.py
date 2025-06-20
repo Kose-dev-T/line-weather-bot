@@ -42,10 +42,10 @@ PREFECTURE_GUESS_MAP = {
     "新潟": "新潟県", "富山": "富山県", "金沢": "石川県", "福井": "福井県", "甲府": "山梨県", "長野": "長野県", "岐阜": "岐阜県",
     "静岡": "静岡県", "浜松": "静岡県", "名古屋": "愛知県", "津": "三重県",
     # 関西
-    "大津": "滋賀県", "近江八幡": "滋賀県", "彦根": "滋賀県", "草津": "滋賀県", # 例: "近江八幡市" -> "近江八幡" でマッチするよう修正
+    "大津": "滋賀県", "近江八幡": "滋賀県", "彦根": "滋賀県", "草津": "滋賀県",
     "京都": "京都府", "大阪": "大阪府", "堺": "大阪府", "東大阪": "大阪府",
     "神戸": "兵庫県", "姫路": "兵庫県", "西宮": "兵庫県",
-    "奈良": "奈良県", "和歌山": "和歌山県",
+    "奈良": "奈良県", "和歌山県": "和歌山県",
     # 中国
     "鳥取": "鳥取県", "松江": "島根県", "岡山": "岡山県", "広島": "広島県", "福山": "広島県", "山口": "山口県",
     # 四国
@@ -100,7 +100,6 @@ def get_jma_area_info(city_name_input):
         
         if not geo_data:
             print(f"DEBUG: OpenWeatherMapで'{city_name_input}'の地理情報が見つかりませんでした。")
-            # OpenWeatherMapで見つからない場合、都道府県マッピングで直接探す
             prefecture_jp = PREFECTURE_GUESS_MAP.get(normalize_place_name(city_name_input), None)
             if prefecture_jp:
                 print(f"DEBUG: 地名直接マッピングで都道府県 '{prefecture_jp}' を推測しました。")
@@ -163,14 +162,20 @@ def get_jma_area_info(city_name_input):
             "熊本県": "熊本", "大分県": "大分", "宮崎県": "宮崎県", "鹿児島県": "鹿児島県", "沖縄県": "那覇"
         }
         
-        target_jma_office_name = jma_office_short_name_map.get(prefecture_jp, prefecture_jp.replace('県', '').replace('府', '').replace('都', '').replace('道', '')) 
+        target_jma_office_name = jma_office_short_name_map.get(prefecture_jp, normalize_place_name(prefecture_jp)) # normalize_place_nameを適用
         if prefecture_jp == "和歌山県": 
             target_jma_office_name = "和歌山"
         
         office_code = None
+        # オフィスコードを検索する際に正規化を適用
+        normalized_target_jma_office_name = normalize_place_name(target_jma_office_name)
+        
         for code, info in JMA_AREA_DATA["offices"].items():
-            if info["name"] == target_jma_office_name:
+            normalized_info_name = normalize_place_name(info.get("name", ""))
+            print(f"DEBUG: Comparing JMA office name '{info.get('name')}' (Normalized: '{normalized_info_name}') with target '{target_jma_office_name}' (Normalized: '{normalized_target_jma_office_name}')")
+            if normalized_info_name == normalized_target_jma_office_name:
                 office_code = code
+                print(f"DEBUG: Found office code '{office_code}' for office name '{info.get('name')}'")
                 break
         
         if not office_code:
