@@ -112,7 +112,6 @@ def get_jma_area_info(city_name_input):
         
         if not geo_data:
             print(f"DEBUG: OpenWeatherMapで'{city_name_input}'の地理情報が見つかりませんでした。")
-            # OpenWeatherMapで見つからない場合、都道府県マッピングで直接探す
             prefecture_jp = PREFECTURE_GUESS_MAP.get(normalize_place_name(city_name_input), None)
             if prefecture_jp:
                 print(f"DEBUG: 地名直接マッピングで都道府県 '{prefecture_jp}' を推測しました。")
@@ -175,24 +174,43 @@ def get_jma_area_info(city_name_input):
             "熊本県": "熊本", "大分県": "大分", "宮崎県": "宮崎県", "鹿児島県": "鹿児島県", "沖縄県": "那覇"
         }
         
-        target_jma_office_name = jma_office_short_name_map.get(prefecture_jp, normalize_place_name(prefecture_jp)) # normalize_place_nameを適用
+        # 目標となるJMAオフィス名（彦根など）
+        target_jma_office_name = jma_office_short_name_map.get(prefecture_jp, normalize_place_name(prefecture_jp)) 
         if prefecture_jp == "和歌山県": 
             target_jma_office_name = "和歌山"
         
         office_code = None
-        # オフィスコードを検索する際に正規化を適用
+        # オフィスコードを検索する際の正規化されたターゲット名
         normalized_target_jma_office_name = normalize_place_name(target_jma_office_name)
-        
+        # 都道府県名も正規化しておく（例えば「滋賀県」->「滋賀」）
+        normalized_prefecture_jp = normalize_place_name(prefecture_jp)
+
+        # DEBUG: JMA_AREA_DATA["offices"]の最初の数件を出力して内容を確認
+        print("DEBUG: JMA Offices Data Sample:")
+        for i, (code, info) in enumerate(JMA_AREA_DATA["offices"].items()):
+            if i >= 5: break # 最初の5件だけ表示
+            print(f"  Code: {code}, Name: '{info.get('name', 'N/A')}'")
+
+
         for code, info in JMA_AREA_DATA["offices"].items():
-            normalized_info_name = normalize_place_name(info.get("name", ""))
-            print(f"DEBUG: Comparing JMA office name '{info.get('name')}' (Normalized: '{normalized_info_name}') with target '{target_jma_office_name}' (Normalized: '{normalized_target_jma_office_name}')")
-            if normalized_info_name == normalized_target_jma_office_name:
+            office_actual_name = info.get("name", "")
+            normalized_office_actual_name = normalize_place_name(office_actual_name)
+            
+            print(f"DEBUG: Comparing JMA office name '{office_actual_name}' (Normalized: '{normalized_office_actual_name}') with target '{target_jma_office_name}' (Normalized: '{normalized_target_jma_office_name}') and normalized prefecture '{normalized_prefecture_jp}'")
+            
+            # 優先度1: 短縮名（彦根）での完全一致
+            if normalized_office_actual_name == normalized_target_jma_office_name:
                 office_code = code
-                print(f"DEBUG: Found office code '{office_code}' for office name '{info.get('name')}'")
+                print(f"DEBUG: Found office code '{office_code}' by direct office name match: '{office_actual_name}'")
                 break
-        
+            # 優先度2: 都道府県名（滋賀）での完全一致 (JMAのオフィス名が都道府県名の場合)
+            elif normalized_office_actual_name == normalized_prefecture_jp:
+                office_code = code
+                print(f"DEBUG: Found office code '{office_code}' by prefecture name match: '{office_actual_name}'")
+                break
+            
         if not office_code:
-            print(f"エラー: 目標のJMAオフィス名 '{target_jma_office_name}' のオフィスコードが見つかりませんでした。")
+            print(f"エラー: 目標のJMAオフィス名 '{target_jma_office_name}'（正規化後: '{normalized_target_jma_office_name}'）または都道府県名 '{prefecture_jp}'（正規化後: '{normalized_prefecture_jp}'）に対応するオフィスコードが見つかりませんでした。")
             return None
         
         print(f"DEBUG: JMAオフィスコード: {office_code}")

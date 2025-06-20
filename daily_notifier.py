@@ -47,12 +47,12 @@ PREFECTURE_GUESS_MAP = {
     "神戸": "兵庫県", "姫路": "兵庫県", "西宮": "兵庫県",
     "奈良": "奈良県", "和歌山県": "和歌山県",
     # 中国
-    "鳥取": "鳥取県", "松江": "島根県", "岡山": "岡山県", "広島": "広島県", "福山": "広島県", "山口": "山口県",
+    "鳥取": "鳥取県", "松江": "島根県", "岡山": "岡山県", "広島": "広島県", "福山": "広島県", "山口県": "山口県",
     # 四国
     "徳島": "徳島県", "高松": "香川県", "松山": "愛媛県", "高知": "高知県",
     # 九州・沖縄
     "福岡": "福岡県", "北九州": "福岡県", "久留米": "福岡県",
-    "佐賀": "佐賀県", "長崎": "長崎県", "熊本": "熊本県", "大分": "大分県", "宮崎": "宮崎県", "鹿児島": "鹿児島県",
+    "佐賀": "佐賀県", "長崎": "長崎県", "熊本": "熊本県", "大分県": "大分県", "宮崎県": "宮崎県", "鹿児島県": "鹿児島県",
     "那覇": "沖縄県", "沖縄": "沖縄県",
 }
 
@@ -158,28 +158,42 @@ def get_jma_area_info(city_name_input):
             "新潟県": "新潟", "富山県": "富山", "石川県": "金沢", "福井県": "福井", "山梨県": "甲府", "長野県": "長野", "岐阜県": "岐阜",
             "静岡県": "静岡", "愛知県": "名古屋", "三重県": "津", "滋賀県": "彦根", "京都府": "京都", "大阪府": "大阪", "兵庫県": "神戸",
             "奈良県": "奈良", "和歌山県": "和歌山", "鳥取県": "鳥取", "島根県": "松江", "岡山県": "岡山", "広島県": "広島", "山口県": "山口",
-            "徳島県": "徳島", "香川県": "高松", "愛媛県": "松山", "高知県": "高知", "福岡県": "福岡", "佐賀県": "佐賀", "長崎県": "長崎",
-            "熊本県": "熊本", "大分県": "大分", "宮崎県": "宮崎県", "鹿児島県": "鹿児島県", "沖縄県": "那覇"
+            "徳島県": "徳島", "香川県": "高松", "愛媛県": "松山", "高知県": "高知", "福岡県": "福岡", "北九州": "福岡県", "久留米": "福岡県",
+            "佐賀": "佐賀県", "長崎": "長崎県", "熊本": "熊本県", "大分県": "大分県", "宮崎県": "宮崎県", "鹿児島県": "鹿児島県",
+            "那覇": "沖縄県", "沖縄": "沖縄県",
         }
         
-        target_jma_office_name = jma_office_short_name_map.get(prefecture_jp, normalize_place_name(prefecture_jp)) # normalize_place_nameを適用
+        target_jma_office_name = jma_office_short_name_map.get(prefecture_jp, normalize_place_name(prefecture_jp)) 
         if prefecture_jp == "和歌山県": 
             target_jma_office_name = "和歌山"
         
         office_code = None
-        # オフィスコードを検索する際に正規化を適用
         normalized_target_jma_office_name = normalize_place_name(target_jma_office_name)
-        
+        normalized_prefecture_jp = normalize_place_name(prefecture_jp)
+
+        print("DEBUG: JMA Offices Data Sample:")
+        for i, (code, info) in enumerate(JMA_AREA_DATA["offices"].items()):
+            if i >= 5: break 
+            print(f"  Code: {code}, Name: '{info.get('name', 'N/A')}'")
+
+
         for code, info in JMA_AREA_DATA["offices"].items():
-            normalized_info_name = normalize_place_name(info.get("name", ""))
-            print(f"DEBUG: Comparing JMA office name '{info.get('name')}' (Normalized: '{normalized_info_name}') with target '{target_jma_office_name}' (Normalized: '{normalized_target_jma_office_name}')")
-            if normalized_info_name == normalized_target_jma_office_name:
+            office_actual_name = info.get("name", "")
+            normalized_office_actual_name = normalize_place_name(office_actual_name)
+            
+            print(f"DEBUG: Comparing JMA office name '{office_actual_name}' (Normalized: '{normalized_office_actual_name}') with target '{target_jma_office_name}' (Normalized: '{normalized_target_jma_office_name}') and normalized prefecture '{normalized_prefecture_jp}'")
+            
+            if normalized_office_actual_name == normalized_target_jma_office_name:
                 office_code = code
-                print(f"DEBUG: Found office code '{office_code}' for office name '{info.get('name')}'")
+                print(f"DEBUG: Found office code '{office_code}' by direct office name match: '{office_actual_name}'")
                 break
-        
+            elif normalized_office_actual_name == normalized_prefecture_jp:
+                office_code = code
+                print(f"DEBUG: Found office code '{office_code}' by prefecture name match: '{office_actual_name}'")
+                break
+            
         if not office_code:
-            print(f"エラー: 目標のJMAオフィス名 '{target_jma_office_name}' のオフィスコードが見つかりませんでした。")
+            print(f"エラー: 目標のJMAオフィス名 '{target_jma_office_name}'（正規化後: '{normalized_target_jma_office_name}'）または都道府県名 '{prefecture_jp}'（正規化後: '{normalized_prefecture_jp}'）に対応するオフィスコードが見つかりませんでした。")
             return None
         
         print(f"DEBUG: JMAオフィスコード: {office_code}")
@@ -206,14 +220,12 @@ def get_jma_area_info(city_name_input):
             
             current_score = -1
             
-            # 1. 完全一致
             if normalized_c20_name == normalized_input or normalized_c20_kana == normalized_input:
                 current_score = 100 
                 best_match_area = {'code': c20_code, 'name': c20_name}
                 print(f"DEBUG:     完全一致！スコア: {current_score}")
                 break 
 
-            # 2. 部分一致 (ユーザー入力が予報区名・かなに含まれる)
             if normalized_input in normalized_c20_name:
                 match_len = len(normalized_input)
                 current_score = max(current_score, 50 + match_len)
@@ -223,7 +235,6 @@ def get_jma_area_info(city_name_input):
                 current_score = max(current_score, 30 + match_len)
                 print(f"DEBUG:     かなに部分一致。現在のスコア: {current_score}")
             
-            # 3. 部分一致 (予報区名・かながユーザー入力に含まれる)
             if normalized_c20_name in normalized_input:
                 match_len = len(normalized_c20_name)
                 current_score = max(current_score, 40 + match_len)
@@ -372,9 +383,16 @@ def send_daily_forecasts():
         return
     
     for user in users:
-        user_id, city_name, lat, lon = user
-        print(f"登録地「{city_name}」({user_id})の天気予報を送信中...")
-        
+        # userの型と要素数をチェックし、ログ出力する
+        print(f"DEBUG: Processing user (raw): {user} (Type: {type(user)})")
+        if isinstance(user, (list, tuple)) and len(user) >= 4: # 最低4つの要素があることを確認
+            user_id, city_name, lat, lon = user[0], user[1], user[2], user[3] # 明示的にインデックスでアクセス
+            print(f"DEBUG: Unpacked user_id: {user_id}, city_name: {city_name}")
+        else:
+            print(f"ERROR: Unexpected user data format from database: {user}. Skipping this user.")
+            # push_to_line に user_id がないため、エラーメッセージを直接ログに出力するのみ
+            continue # このユーザーはスキップして次のユーザーへ
+
         area_info = get_jma_area_info(city_name)
         if area_info:
             forecast_message = get_jma_forecast_message_dict(area_info["office_code"], area_info["area_code"], area_info["area_name"])
