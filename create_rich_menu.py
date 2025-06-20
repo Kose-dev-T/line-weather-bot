@@ -1,5 +1,5 @@
 import os
-import requests # requestsを直接使うのでインポートを確認
+import requests
 from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi,
     RichMenuRequest, RichMenuArea, RichMenuBounds, PostbackAction
@@ -37,12 +37,12 @@ def create_rich_menu():
     )
     
     try:
-        # 1. リッチメニューの骨組みを作成し、IDを取得
+        # リッチメニューの骨組みを作成し、IDを取得
         rich_menu_id_response = line_bot_api.create_rich_menu(rich_menu_request=rich_menu_to_create)
         rich_menu_id = rich_menu_id_response.rich_menu_id
         print(f"リッチメニューの骨組みを作成しました。ID: {rich_menu_id}")
 
-        # 2. 【最終修正】requestsライブラリを直接使って画像をアップロード
+        # requestsライブラリを直接使って画像をアップロード
         print("画像をアップロードします... (requestsを直接使用)")
         
         # LINEの仕様書に定められた、画像アップロード用のURL
@@ -63,13 +63,12 @@ def create_rich_menu():
         if response.status_code == 200:
             print("画像をアップロードしました。")
         else:
-            # もし失敗したら、サーバーからの応答を表示して原因を特定
             print("エラー: 画像のアップロードに失敗しました。")
             print(f"ステータスコード: {response.status_code}")
             print(f"応答内容: {response.text}")
-            return # エラーがあったらここで処理を中断
+            return
 
-        # 3. 全てのユーザーにこのリッチメニューをデフォルトとして設定
+        # 全てのユーザーにこのリッチメニューをデフォルトとして設定
         line_bot_api.set_default_rich_menu(rich_menu_id)
         print("デフォルトリッチメニューとして設定しました。")
         print("\n★★★ リッチメニューの作成と設定が、全て完了しました！ ★★★")

@@ -1,11 +1,9 @@
-# database.py (最終完成版)
 import os
 from sqlalchemy import create_engine, text
 
 # Renderの環境変数からデータベースURLを取得
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# RenderのURL(postgres://)を、SQLAlchemyが認識できる形式(postgresql+psycopg2://)に書き換える
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 
@@ -58,7 +56,6 @@ def set_user_location(user_id, city_name, lat, lon):
         """), {"user_id": user_id, "city_name": city_name, "lat": lat, "lon": lon})
         connection.commit()
 
-#【重要】この関数が不足していました
 def get_all_users_with_location():
     """登録地がある全ユーザーの情報を取得する関数（自動通知用）"""
     if not engine: return []
