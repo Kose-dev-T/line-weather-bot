@@ -69,26 +69,21 @@ def get_daily_forecast_message_dict(lat, lon, city_name):
                 "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
                     {"type": "box", "layout": "vertical", "contents": [
                         {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#1DB446"},
-                        {"type": "text", "text": datetime.now().strftime('%Y年%m月%d日'), "size": "sm", "color": "#AAAAAA"}
-                    ]},
+                        {"type": "text", "text": datetime.now().strftime('%Y年%m月%d日'), "size": "sm", "color": "#AAAAAA"}]},
                     {"type": "separator", "margin": "md"},
                     {"type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "天気", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": description, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
-                        ]},
+                            {"type": "text", "text": description, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "最高気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{temp_max:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
-                        ]},
+                            {"type": "text", "text": f"{temp_max:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "最低気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{temp_min:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
-                        ]},
+                            {"type": "text", "text": f"{temp_min:.1f}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "降水確率", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{pop_percent:.0f}%", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
-                        ]}
+                            {"type": "text", "text": f"{pop_percent:.0f}%", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]}
                     ]}
                 ]}
             }
@@ -98,25 +93,15 @@ def get_daily_forecast_message_dict(lat, lon, city_name):
         print(f"Forecast API Error or Flex Message creation error: {e}")
         return {"type": "text", "text": "天気情報の取得に失敗しました。"}
 
-def get_weather_sticker_message(weather_description):
-    if "快晴" in weather_description or "晴天" in weather_description: package_id, sticker_id = "11537", "52002734"
-    elif "雨" in weather_description: package_id, sticker_id = "11538", "51626501"
-    elif "雪" in weather_description: package_id, sticker_id = "11538", "51626522"
-    elif "曇" in weather_description: package_id, sticker_id = "11537", "52002748"
-    elif "晴" in weather_description: package_id, sticker_id = "11537", "52002734"
-    else: package_id, sticker_id = "11537", "52002735"
-    return {"type": "sticker", "packageId": str(package_id), "stickerId": str(sticker_id)}
-
 def reply_to_line(reply_token, messages):
     headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
     body = {"replyToken": reply_token, "messages": messages}
     try:
         response = requests.post("https://api.line.me/v2/bot/message/reply", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
-        print(f"--- LINE Reply API Response --- Status: {response.status_code}, Text: {response.text}")
         response.raise_for_status()
         print("LINEへの返信が成功しました。")
     except requests.exceptions.RequestException as e:
-        print(f"LINE返信エラー: {e}")
+        print(f"LINE返信エラー: {e}\n応答内容: {e.response.text if e.response else 'N/A'}")
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -161,10 +146,6 @@ def handle_message(event):
         coords_data = get_location_coords(user_message)
         if coords_data:
             forecast_message = get_daily_forecast_message_dict(coords_data["lat"], coords_data["lon"], coords_data["name"])
-            if forecast_message.get("type") == "flex":
-                weather_description = forecast_message["contents"]["body"]["contents"][2]["contents"][0]["contents"][1]["text"]
-                sticker_message = get_weather_sticker_message(weather_description)
-                messages_to_send.append(sticker_message)
             messages_to_send.append(forecast_message)
         else:
             messages_to_send.append({"type": "text", "text": f"「{user_message}」という地名が見つかりませんでした。"})

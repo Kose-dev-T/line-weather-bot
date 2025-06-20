@@ -61,25 +61,16 @@ def get_daily_forecast_message_dict(lat, lon, city_name):
         print(f"Forecast API Error or Flex Message creation error: {e}")
         return {"type": "text", "text": "天気情報の取得に失敗しました。"}
 
-def get_weather_sticker_message(weather_description):
-    if "快晴" in weather_description or "晴天" in weather_description: package_id, sticker_id = "11537", "52002734"
-    elif "雨" in weather_description: package_id, sticker_id = "11538", "51626501"
-    elif "雪" in weather_description: package_id, sticker_id = "11538", "51626522"
-    elif "曇" in weather_description: package_id, sticker_id = "11537", "52002748"
-    elif "晴" in weather_description: package_id, sticker_id = "11537", "52002734"
-    else: package_id, sticker_id = "11537", "52002735"
-    return {"type": "sticker", "packageId": str(package_id), "stickerId": str(sticker_id)}
-
 def push_to_line(user_id, messages):
     headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
     body = {"to": user_id, "messages": messages}
     try:
         response = requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
-        print(f"--- LINE Push API Response --- Status: {response.status_code}, Text: {response.text}")
         response.raise_for_status()
         print(f"ユーザー({user_id})への通知が成功しました。")
     except requests.exceptions.RequestException as e:
         print(f"ユーザー({user_id})へのLINE通知エラー: {e}")
+        if e.response: print(f"応答内容: {e.response.text}")
 
 def send_daily_forecasts():
     print("デイリー通知の送信を開始します...")
@@ -93,13 +84,7 @@ def send_daily_forecasts():
         user_id, city_name, lat, lon = user
         print(f"{city_name}({user_id})の天気予報を送信中...")
         forecast_message = get_daily_forecast_message_dict(lat, lon, city_name)
-        messages_to_send = []
-        if forecast_message.get("type") == "flex":
-            weather_description = forecast_message["contents"]["body"]["contents"][2]["contents"][0]["contents"][1]["text"]
-            sticker_message = get_weather_sticker_message(weather_description)
-            messages_to_send.append(sticker_message)
-        messages_to_send.append(forecast_message)
-        push_to_line(user_id, messages_to_send)
+        push_to_line(user_id, [forecast_message]) # 変更: スタンプ送信をやめ、Flex Messageだけを送る
             
     print("デイリー通知の送信が完了しました。")
 
