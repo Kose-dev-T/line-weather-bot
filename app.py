@@ -65,7 +65,23 @@ def get_daily_forecast_message_dict(lat, lon, city_name):
             "type": "flex", "altText": f"{city_name}の天気予報",
             "contents": {
                 "type": "bubble", "direction": 'ltr',
-                "header": {"type": "box", "layout": "vertical", "contents": [{"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl"}]},
+                "header": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "今日の天気予報",
+                            "weight": "bold",
+                            "size": "xl",
+                            "color": "#FFFFFF", # 文字色を白に
+                            "align": "center"  # 中央揃えに
+                        }
+                    ],
+                    "backgroundColor": "#27A5F9", # ヘッダーに背景色を追加
+                    "paddingTop": "12px",
+                    "paddingBottom": "12px"
+                },
                 "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
                     {"type": "box", "layout": "vertical", "contents": [
                         {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#1DB446"},
