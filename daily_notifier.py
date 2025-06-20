@@ -1,48 +1,31 @@
 import os
-import requests # requestsを直接使うのでインポート
-import json     # JSONデータを扱うためにインポート
+import requests
+import json
 from dotenv import load_dotenv
 import database
 
-# daily_notifier.pyがapp.pyの関数を使えるように、少し工夫します
-from app import get_daily_forecast
+# --- 必要な部品をインポート ---
+# LINE Messaging API関連
+from linebot.v3.messaging import (
+    Configuration,
+    ApiClient,
+    MessagingApi,
+    PushMessageRequest,
+    TextMessage,
+    StickerSendMessage,
+    FlexSendMessage
+)
+# app.pyから天気予報とスタンプの関数を拝借
+from app import get_daily_forecast, get_weather_sticker
 
 # --- 初期設定 ---
 load_dotenv()
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 
-def send_line_push_notification(user_id, message):
-    """【修正箇所】requestsを直接使い、指定したユーザーIDにプッシュ通知を送信する関数"""
-    
-    # LINEのPush Message APIのエンドポイントURL
-    push_api_url = "https://api.line.me/v2/bot/message/push"
-    
-    # リクエストに必要なヘッダー
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"
-    }
-    
-    # 送信するデータ本体（JSON形式）
-    body = {
-        "to": user_id,
-        "messages": [
-            {
-                "type": "text",
-                "text": message
-            }
-        ]
-    }
-
-    try:
-        # requests.postで、LINEのサーバーに直接通知リクエストを送信
-        response = requests.post(push_api_url, headers=headers, data=json.dumps(body))
-        response.raise_for_status() # エラーがあればここで停止
-        print(f"ユーザー({user_id})への通知が成功しました。")
-    except requests.exceptions.RequestException as e:
-        print(f"ユーザー({user_id})へのLINE通知エラー: {e}")
-        # サーバーからの詳細なエラー内容も表示
-        print(f"応答内容: {e.response.text}")
+# LINE Bot APIの準備
+configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
+api_client = ApiClient(configuration)
+line_bot_api = MessagingApi(api_client)
 
 
 def send_daily_forecasts():
@@ -59,12 +42,41 @@ def send_daily_forecasts():
         user_id, city_name, lat, lon = user
         print(f"{city_name}({user_id})の天気予報を送信中...")
         
-        # 天気予報メッセージを取得
-        forecast_message = get_daily_forecast(lat, lon, city_name)
+        # 天気予報メッセージ（FlexSendMessageまたはTextMessage）を取得
+        forecast_object = get_daily_forecast(lat, lon, city_name)
         
-        if forecast_message:
-            # 新しい通知関数を呼び出す
-            send_line_push_notification(user_id, forecast_message)
+        # --- スタンプと天気予報を一緒に送るロジック ---
+        messages_to_send = []
+        
+        # forecast_objectがFlexSendMessageの場合のみ、スタンプを追加する
+        if isinstance(forecast_object, FlexSendMessage):
+            # FlexMessageから天気の説明文を抽出
+            weather_description = forecast_object.contents.body.contents[2].contents[0].contents[1].text
+            # 説明文に合ったスタンプを取得
+            sticker_info = get_weather_sticker(weather_description)
+            sticker_message = StickerSendMessage(
+                package_id=sticker_info["package_id"],
+                sticker_id=sticker_info["sticker_id"]
+            )
+            # 送信リストにスタンプを先に追加
+            messages_to_send.append(sticker_message)
+        
+        # 最後に、メインのメッセージ（FlexMessageまたはTextMessage）を追加
+        if forecast_object:
+            messages_to_send.append(forecast_object)
+
+        # 最終的なメッセージリストをプッシュ通知で送信
+        if messages_to_send:
+            try:
+                line_bot_api.push_message(
+                    PushMessageRequest(
+                        to=user_id,
+                        messages=messages_to_send
+                    )
+                )
+                print(f"ユーザー({user_id})への通知が成功しました。")
+            except Exception as e:
+                print(f"ユーザー({user_id})へのLINE通知エラー: {e}")
             
     print("デイリー通知の送信が完了しました。")
 
