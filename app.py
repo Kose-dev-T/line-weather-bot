@@ -8,18 +8,17 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent, P
 from datetime import datetime
 from dotenv import load_dotenv
 import database
-import xml.etree.ElementTree as ET # XMLを解析するためにインポート
+import xml.etree.ElementTree as ET
 
 # --- 初期設定 ---
 load_dotenv()
 app = Flask(__name__)
 
-with app.app_context():
-    database.init_db()
+# 【修正】起動時のDB初期化を削除。app.pyは対話に専念します。
 
+# 環境変数からキー情報を取得
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
-# 【修正】地名から都道府県を特定するために、OpenWeatherMapのAPIキーも読み込みます
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
 handler = WebhookHandler(CHANNEL_SECRET)
@@ -30,12 +29,8 @@ CITY_LIST_CACHE = None
 # --- 補助関数群 ---
 
 def get_city_id(user_input_city):
-    """
-    ユーザーが入力した地名から、最も関連性の高い主要都市のIDを返す関数。
-    (daily_notifier.pyと全く同じ関数です)
-    """
+    """ユーザーが入力した地名から、最も関連性の高い主要都市のIDを返す関数。"""
     global CITY_LIST_CACHE
-    
     try:
         geo_api_url = "http://api.openweathermap.org/geo/1.0/direct"
         geo_params = {"q": f"{user_input_city},JP", "limit": 1, "appid": OPENWEATHER_API_KEY}
@@ -49,27 +44,11 @@ def get_city_id(user_input_city):
     except Exception as e:
         print(f"Error getting prefecture from OWM: {e}")
         return None
-
-    prefecture_map = {
-        "Hokkaido": "北海道", "Aomori": "青森", "Iwate": "岩手", "Miyagi": "宮城", 
-        "Akita": "秋田", "Yamagata": "山形", "Fukushima": "福島", "Ibaraki": "茨城", 
-        "Tochigi": "栃木", "Gunma": "群馬", "Saitama": "埼玉", "Chiba": "千葉", 
-        "Tokyo": "東京", "Kanagawa": "神奈川", "Niigata": "新潟", "Toyama": "富山", 
-        "Ishikawa": "石川", "Fukui": "福井", "Yamanashi": "山梨", "Nagano": "長野", 
-        "Gifu": "岐阜", "Shizuoka": "静岡", "Aichi": "愛知", "Mie": "三重", 
-        "Shiga": "滋賀", "Kyoto": "京都", "Osaka": "大阪", "Hyogo": "兵庫", 
-        "Nara": "奈良", "Wakayama": "和歌山", "Tottori": "鳥取", "Shimane": "島根", 
-        "Okayama": "岡山", "Hiroshima": "広島", "Yamaguchi": "山口", 
-        "Tokushima": "徳島", "Kagawa": "香川", "Ehime": "愛媛", "Kochi": "高知", 
-        "Fukuoka": "福岡", "Saga": "佐賀", "Nagasaki": "長崎", "Kumamoto": "熊本", 
-        "Oita": "大分", "Miyazaki": "宮崎", "Kagoshima": "鹿児島", "Okinawa": "沖縄"
-    }
+    prefecture_map = {"Hokkaido": "北海道", "Aomori": "青森", "Iwate": "岩手", "Miyagi": "宮城", "Akita": "秋田", "Yamagata": "山形", "Fukushima": "福島", "Ibaraki": "茨城", "Tochigi": "栃木", "Gunma": "群馬", "Saitama": "埼玉", "Chiba": "千葉", "Tokyo": "東京", "Kanagawa": "神奈川", "Niigata": "新潟", "Toyama": "富山", "Ishikawa": "石川", "Fukui": "福井", "Yamanashi": "山梨", "Nagano": "長野", "Gifu": "岐阜", "Shizuoka": "静岡", "Aichi": "愛知", "Mie": "三重", "Shiga": "滋賀", "Kyoto": "京都", "Osaka": "大阪", "Hyogo": "兵庫", "Nara": "奈良", "Wakayama": "和歌山", "Tottori": "鳥取", "Shimane": "島根", "Okayama": "岡山", "Hiroshima": "広島", "Yamaguchi": "山口", "Tokushima": "徳島", "Kagawa": "香川", "Ehime": "愛媛", "Kochi": "高知", "Fukuoka": "福岡", "Saga": "佐賀", "Nagasaki": "長崎", "Kumamoto": "熊本", "Oita": "大分", "Miyazaki": "宮崎", "Kagoshima": "鹿児島", "Okinawa": "沖縄"}
     prefecture_jp_short = prefecture_map.get(prefecture_en)
-    
     if not prefecture_jp_short:
         print(f"Could not map English prefecture '{prefecture_en}' to Japanese.")
         return None
-
     if CITY_LIST_CACHE is None:
         try:
             response = requests.get("https://weather.tsukumijima.net/primary_area.xml")
@@ -79,21 +58,18 @@ def get_city_id(user_input_city):
         except Exception as e:
             print(f"都市リストの取得に失敗しました: {e}")
             return None
-            
     pref_element = CITY_LIST_CACHE.find(f".//pref[@title='{prefecture_jp_short}']")
-    
     if pref_element is not None:
         first_city = pref_element.find('city')
         if first_city is not None:
             city_id = first_city.get('id')
             print(f"Input '{user_input_city}' resolved to prefecture '{prefecture_jp_short}' and primary city ID '{city_id}'")
             return city_id
-    
     print(f"Could not find a primary city for prefecture '{prefecture_jp_short}' in the XML list.")
     return None
 
 def get_livedoor_forecast_message_dict(city_id):
-    """指定された都市IDの天気予報を取得する関数 (daily_notifier.pyと全く同じ)"""
+    """指定された都市IDの天気予報を取得する関数"""
     api_url = f"https://weather.tsukumijima.net/api/forecast?city={city_id}"
     try:
         response = requests.get(api_url)
@@ -107,7 +83,6 @@ def get_livedoor_forecast_message_dict(city_id):
         temp_max = temp_max_obj["celsius"] if temp_max_obj else "--"
         temp_min = temp_min_obj["celsius"] if temp_min_obj else "--"
         chance_of_rain = " / ".join(today_forecast["chanceOfRain"].values())
-
         flex_message = {
             "type": "flex", "altText": f"{city_name}の天気予報",
             "contents": {
@@ -181,26 +156,30 @@ def handle_postback(event):
 def handle_message(event):
     user_id = event.source.user_id
     user_message = event.message.text
-    user_state = database.get_user_state(user_id)
     messages_to_send = []
     
-    # 【修正】賢くなったget_city_idを呼び出す
-    city_id = get_city_id(user_message)
+    try:
+        user_state = database.get_user_state(user_id)
+        city_id = get_city_id(user_message)
+        
+        if user_state == 'waiting_for_location':
+            if city_id:
+                database.set_user_location(user_id, user_message, 0, 0)
+                messages_to_send.append({"type": "text", "text": f"地点を「{user_message}」に設定しました。\n明日から登録地点の天気予報をお届けします！"})
+            else:
+                messages_to_send.append({"type": "text", "text": f"「{user_message}」が見つかりませんでした。日本の市町村名などで入力してください。"})
+        else:
+            if city_id:
+                forecast_message = get_livedoor_forecast_message_dict(city_id)
+                messages_to_send.append(forecast_message)
+            else:
+                messages_to_send.append({"type": "text", "text": f"「{user_message}」の天気情報が見つかりませんでした。"})
     
-    if user_state == 'waiting_for_location':
-        if city_id:
-            # データベースには元のユーザー入力を保存する
-            database.set_user_location(user_id, user_message, 0, 0)
-            messages_to_send.append({"type": "text", "text": f"地点を「{user_message}」に設定しました。\n明日から登録地点の天気予報をお届けします！"})
-        else:
-            messages_to_send.append({"type": "text", "text": f"「{user_message}」が見つかりませんでした。日本の市町村名などで入力してください。"})
-    else:
-        if city_id:
-            forecast_message = get_livedoor_forecast_message_dict(city_id)
-            messages_to_send.append(forecast_message)
-        else:
-            messages_to_send.append({"type": "text", "text": f"「{user_message}」の天気情報が見つかりませんでした。"})
-            
+    except Exception as e:
+        # DB接続エラーなどでクラッシュするのを防ぐ
+        print(f"Error in handle_message: {e}")
+        messages_to_send.append({"type": "text", "text": "現在、データベースが準備中です。しばらくしてからもう一度お試しください。"})
+
     if messages_to_send:
         reply_to_line(event.reply_token, messages_to_send)
 
