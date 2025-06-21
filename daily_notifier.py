@@ -9,125 +9,75 @@ import xml.etree.ElementTree as ET
 # --- 初期設定 ---
 load_dotenv()
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
-# 地名から都道府県を特定するために、OpenWeatherMapのAPIキーも読み込みます
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
 # --- グローバル変数 ---
-CITY_LIST_CACHE = None
+JMA_AREA_DATA = None
 
-# --- 補助関数群（app.pyからコピー） ---
+# --- 補助関数群 ---
 
-def get_city_id(user_input_city):
-    """
-    ユーザーが入力した地名から、最も関連性の高い主要都市のIDを返す関数。
-    """
-    global CITY_LIST_CACHE
-    
+def get_jma_area_info(city_name):
+    global JMA_AREA_DATA
     try:
-        geo_api_url = "http://api.openweathermap.org/geo/1.0/direct"
-        geo_params = {"q": f"{user_input_city},JP", "limit": 1, "appid": OPENWEATHER_API_KEY}
-        
-        geo_res = requests.get(geo_api_url, params=geo_params)
+        geo_api_url = f"http://api.openweathermap.org/geo/1.0/direct?q={city_name},JP&limit=1&appid={OPENWEATHER_API_KEY}"
+        geo_res = requests.get(geo_api_url)
         geo_res.raise_for_status()
         geo_data = geo_res.json()
-        
-        if not geo_data or "state" not in geo_data[0]:
-            print(f"OWM Geocoding API did not find a prefecture for '{user_input_city}'")
-            return None
-            
-        prefecture_en = geo_data[0]["state"]
-        
+        if not geo_data: return None
+        prefecture_en = geo_data[0].get("state", geo_data[0].get("name", ""))
+        prefecture_map = {"Hokkaido": "北海道", "Aomori": "青森県", "Iwate": "岩手県", "Miyagi": "宮城県", "Akita": "秋田県", "Yamagata": "山形県", "Fukushima": "福島県", "Ibaraki": "茨城県", "Tochigi": "栃木県", "Gunma": "群馬県", "Saitama": "埼玉県", "Chiba": "千葉県", "Tokyo": "東京都", "Kanagawa": "神奈川県", "Niigata": "新潟県", "Toyama": "富山県", "Ishikawa": "石川県", "Fukui": "福井県", "Yamanashi": "山梨県", "Nagano": "長野県", "Gifu": "岐阜県", "Shizuoka": "静岡県", "Aichi": "愛知県", "Mie": "三重県", "Shiga": "滋賀県", "Kyoto": "京都府", "Osaka": "大阪府", "Hyogo": "兵庫県", "Nara": "奈良県", "Wakayama": "和歌山県", "Tottori": "鳥取県", "Shimane": "島根県", "Okayama": "岡山県", "Hiroshima": "広島県", "Yamaguchi": "山口県", "Tokushima": "徳島県", "Kagawa": "香川県", "Ehime": "愛媛県", "Kochi": "高知県", "Fukuoka": "福岡県", "Saga": "佐賀県", "Nagasaki": "長崎県", "Kumamoto": "熊本県", "Oita": "大分県", "Miyazaki": "宮崎県", "Kagoshima": "鹿児島県", "Okinawa": "沖縄県"}
+        prefecture_jp = prefecture_map.get(prefecture_en)
+        if not prefecture_jp: return None
+        if JMA_AREA_DATA is None:
+            area_res = requests.get("https://www.jma.go.jp/bosai/common/const/area.json")
+            area_res.raise_for_status()
+            JMA_AREA_DATA = area_res.json()
+            print("気象庁エリアデータを取得・キャッシュしました。")
+        office_code = None
+        for code, info in JMA_AREA_DATA["offices"].items():
+            if info["name"] == prefecture_jp:
+                office_code = code
+                break
+        if not office_code: return None
+        first_area_code = JMA_AREA_DATA["offices"][office_code]["children"][0]
+        area_name = JMA_AREA_DATA["class20s"][first_area_code]["name"]
+        return {"office_code": office_code, "area_code": first_area_code, "area_name": area_name}
     except Exception as e:
-        print(f"Error getting prefecture from OWM: {e}")
+        print(f"JMA Area Info Error: {e}")
         return None
 
-    prefecture_map = {
-        "Hokkaido": "北海道", "Aomori": "青森", "Iwate": "岩手", "Miyagi": "宮城", 
-        "Akita": "秋田", "Yamagata": "山形", "Fukushima": "福島", "Ibaraki": "茨城", 
-        "Tochigi": "栃木", "Gunma": "群馬", "Saitama": "埼玉", "Chiba": "千葉", 
-        "Tokyo": "東京", "Kanagawa": "神奈川", "Niigata": "新潟", "Toyama": "富山", 
-        "Ishikawa": "石川", "Fukui": "福井", "Yamanashi": "山梨", "Nagano": "長野", 
-        "Gifu": "岐阜", "Shizuoka": "静岡", "Aichi": "愛知", "Mie": "三重", 
-        "Shiga": "滋賀", "Kyoto": "京都", "Osaka": "大阪", "Hyogo": "兵庫", 
-        "Nara": "奈良", "Wakayama": "和歌山", "Tottori": "鳥取", "Shimane": "島根", 
-        "Okayama": "岡山", "Hiroshima": "広島", "Yamaguchi": "山口", 
-        "Tokushima": "徳島", "Kagawa": "香川", "Ehime": "愛媛", "Kochi": "高知", 
-        "Fukuoka": "福岡", "Saga": "佐賀", "Nagasaki": "長崎", "Kumamoto": "熊本", 
-        "Oita": "大分", "Miyazaki": "宮崎", "Kagoshima": "鹿児島", "Okinawa": "沖縄"
-    }
-    prefecture_jp_short = prefecture_map.get(prefecture_en)
-    
-    if not prefecture_jp_short:
-        print(f"Could not map English prefecture '{prefecture_en}' to Japanese.")
-        return None
-
-    if CITY_LIST_CACHE is None:
-        try:
-            response = requests.get("https://weather.tsukumijima.net/primary_area.xml")
-            response.raise_for_status()
-            # XMLの文字コードがEUC-JPの場合を考慮してデコードを試みる
-            try:
-                CITY_LIST_CACHE = ET.fromstring(response.content.decode('euc-jp'))
-            except Exception:
-                CITY_LIST_CACHE = ET.fromstring(response.content.decode('utf-8'))
-            print("都市リストをダウンロード・キャッシュしました。")
-        except Exception as e:
-            print(f"都市リストの取得に失敗しました: {e}")
-            return None
-            
-    # XML全体からcityタグを直接検索する
-    search_term = user_input_city.replace('市', '').replace('町', '').replace('村', '').replace('区', '')
-    perfect_match = CITY_LIST_CACHE.find(f".//city[@title='{search_term}']")
-    if perfect_match is not None:
-        city_id = perfect_match.get('id')
-        print(f"Direct match found for '{search_term}'. City ID: {city_id}")
-        return city_id
-
-    # 直接一致がなければ、特定した都道府県の最初の都市（主要都市）のIDを返す
-    pref_element = CITY_LIST_CACHE.find(f".//pref[@title='{prefecture_jp_short}']")
-    
-    if pref_element is not None:
-        first_city = pref_element.find('city')
-        if first_city is not None:
-            city_id = first_city.get('id')
-            print(f"Input '{user_input_city}' resolved to prefecture '{prefecture_jp_short}' and primary city ID '{city_id}'")
-            return city_id
-    
-    print(f"Could not find any match for '{user_input_city}'.")
-    return None
-
-def get_livedoor_forecast_message_dict(city_id):
-    """指定された都市IDの天気予報を取得する関数"""
-    api_url = f"https://weather.tsukumijima.net/api/forecast?city={city_id}"
+def get_jma_forecast_message_dict(office_code, area_code, area_name):
+    api_url = f"https://www.jma.go.jp/bosai/forecast/data/forecast/{office_code}.json"
     try:
         response = requests.get(api_url)
         response.raise_for_status()
         data = response.json()
-        today_forecast = data["forecasts"][0]
-        city_name = data["location"]["city"]
-        weather = today_forecast["telop"]
-        temp_max_obj = today_forecast["temperature"]["max"]
-        temp_min_obj = today_forecast["temperature"]["min"]
-        temp_max = temp_max_obj["celsius"] if temp_max_obj else "--"
-        temp_min = temp_min_obj["celsius"] if temp_min_obj else "--"
-        chance_of_rain = " / ".join(today_forecast["chanceOfRain"].values())
-
+        time_series = data[0]["timeSeries"]
+        weather_area = next((area for area in time_series[0]["areas"] if area["area"]["code"] == area_code), None)
+        today_weather = weather_area["weathers"][0].replace("　", " ") if weather_area else "情報なし"
+        pops_area = time_series[1]["areas"][0]
+        pops = [p for p in pops_area["pops"] if p != "--"]
+        pop_today = max(map(int, pops[:2])) if len(pops) >= 2 else (pops[0] if pops else "---")
+        temp_area = next((area for area in time_series[2]["areas"] if area["area"]["code"] == area_code), None)
+        temp_max = temp_area["temps"][0] if temp_area else "--"
+        temp_min = temp_area["temps"][1] if temp_area else "--"
+        
         flex_message = {
-            "type": "flex", "altText": f"{city_name}の天気予報",
+            "type": "flex", "altText": f"{area_name}の天気予報 (気象庁)",
             "contents": {
                 "type": "bubble", "direction": 'ltr',
                 "header": {"type": "box", "layout": "vertical", "contents": [
-                    {"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}
-                ], "backgroundColor": "#00B900", "paddingTop": "12px", "paddingBottom": "12px"},
+                    {"type": "text", "text": "今日の天気予報 (気象庁)", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}
+                ], "backgroundColor": "#27A5F9", "paddingTop": "12px", "paddingBottom": "12px"},
                 "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
                     {"type": "box", "layout": "vertical", "contents": [
-                        {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#00B900"},
-                        {"type": "text", "text": today_forecast["date"], "size": "sm", "color": "#AAAAAA"}]},
+                        {"type": "text", "text": area_name, "size": "lg", "weight": "bold", "color": "#1DB446"},
+                        {"type": "text", "text": datetime.now().strftime('%Y年%m月%d日'), "size": "sm", "color": "#AAAAAA"}]},
                     {"type": "separator", "margin": "md"},
                     {"type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "天気", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": weather, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                            {"type": "text", "text": today_weather, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "最高気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
                             {"type": "text", "text": f"{temp_max}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
@@ -136,18 +86,17 @@ def get_livedoor_forecast_message_dict(city_id):
                             {"type": "text", "text": f"{temp_min}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "降水確率", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": chance_of_rain, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]}
+                            {"type": "text", "text": f"{pop_today}%", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]}
                     ]}
                 ]}
             }
         }
         return flex_message
     except Exception as e:
-        print(f"Livedoor Forecast API Error: {e}")
-        return {"type": "text", "text": "天気情報の取得に失敗しました。"}
+        print(f"JMA Forecast API Error: {e}")
+        return {"type": "text", "text": "気象庁からの天気情報取得に失敗しました。"}
 
 def push_to_line(user_id, messages):
-    """requestsを使って、LINEにプッシュ通知を送信する関数"""
     headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
     body = {"to": user_id, "messages": messages}
     try:
@@ -159,7 +108,6 @@ def push_to_line(user_id, messages):
         if e.response: print(f"応答内容: {e.response.text}")
 
 def send_daily_forecasts():
-    """登録ユーザー全員に天気予報を通知するメイン関数"""
     print("デイリー通知の送信を開始します...")
     database.init_db()
     users = database.get_all_users_with_location()
@@ -171,21 +119,19 @@ def send_daily_forecasts():
         user_id, city_name, lat, lon = user
         print(f"登録地「{city_name}」({user_id})の天気予報を送信中...")
         
-        # データベースに保存された地名から都市IDを取得
-        city_id = get_city_id(city_name)
-        if city_id:
-            forecast_message = get_livedoor_forecast_message_dict(city_id)
+        area_info = get_jma_area_info(city_name)
+        if area_info:
+            forecast_message = get_jma_forecast_message_dict(area_info["office_code"], area_info["area_code"], area_info["area_name"])
             push_to_line(user_id, [forecast_message])
         else:
-            print(f"「{city_name}」の都市IDが見つからなかったため、送信をスキップします。")
+            print(f"「{city_name}」のエリア情報が見つからなかったため、送信をスキップします。")
             error_message = {"type": "text", "text": f"ご登録の地点「{city_name}」の天気情報が見つかりませんでした。お手数ですが、メニューから地点を再登録してください。"}
             push_to_line(user_id, [error_message])
             
     print("デイリー通知の送信が完了しました。")
 
-# --- メインの実行部分 ---
 if __name__ == "__main__":
     if not all([CHANNEL_ACCESS_TOKEN, OPENWEATHER_API_KEY]):
-        print("エラー: .envファイルにCHANNEL_ACCESS_TOKENとOPENWEATHER_API_KEYが設定されていません。")
+        print("エラー: .envファイルに必要なキーが設定されていません。")
     else:
         send_daily_forecasts()
