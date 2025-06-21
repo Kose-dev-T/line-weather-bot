@@ -4,69 +4,14 @@ import json
 from datetime import datetime
 from dotenv import load_dotenv
 import database
-import math
 
 # --- 初期設定 ---
 load_dotenv()
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
-OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
-# --- グローバル変数 ---
-LIVEDOOR_CITY_LIST = None
+# --- 補助関数群 ---
 
-# --- 補助関数群（app.pyからコピー） ---
-
-def get_livedoor_cities():
-    """livedoor互換APIの都市リストとID、緯度経度を取得・キャッシュする関数"""
-    global LIVEDOOR_CITY_LIST
-    if LIVEDOOR_CITY_LIST is not None:
-        return LIVEDOOR_CITY_LIST
-    LIVEDOOR_CITY_LIST = [
-        {"id": "016010", "name": "札幌", "lat": 43.064, "lon": 141.347}, {"id": "040010", "name": "仙台", "lat": 38.268, "lon": 140.872},
-        {"id": "130010", "name": "東京", "lat": 35.689, "lon": 139.692}, {"id": "140010", "name": "横浜", "lat": 35.448, "lon": 139.642},
-        {"id": "230010", "name": "名古屋", "lat": 35.181, "lon": 136.906}, {"id": "250010", "name": "大津", "lat": 35.004, "lon": 135.869},
-        {"id": "250020", "name": "彦根", "lat": 35.274, "lon": 136.259}, {"id": "260010", "name": "京都", "lat": 35.021, "lon": 135.754},
-        {"id": "270000", "name": "大阪", "lat": 34.686, "lon": 135.520}, {"id": "280010", "name": "神戸", "lat": 34.694, "lon": 135.195},
-        {"id": "340010", "name": "広島", "lat": 34.396, "lon": 132.459}, {"id": "400010", "name": "福岡", "lat": 33.591, "lon": 130.401},
-        {"id": "471010", "name": "那覇", "lat": 26.212, "lon": 127.681}
-    ]
-    print("主要都市リストをキャッシュしました。")
-    return LIVEDOOR_CITY_LIST
-
-def haversine(lat1, lon1, lat2, lon2):
-    """2点間の距離を計算する関数（ハーバーサイン公式）"""
-    R = 6371 # 地球の半径 (km)
-    dLat, dLon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
-    a = math.sin(dLat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dLon/2)**2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-
-def get_closest_city_id(user_input_city):
-    """ユーザー入力の地名に最も近い、予報可能な都市のIDを返す"""
-    try:
-        geo_api_url = f"http://api.openweathermap.org/geo/1.0/direct?q={user_input_city},JP&limit=1&appid={OPENWEATHER_API_KEY}"
-        geo_res = requests.get(geo_api_url)
-        geo_res.raise_for_status()
-        geo_data = geo_res.json()
-        if not geo_data: return None
-        user_lat, user_lon = geo_data[0]['lat'], geo_data[0]['lon']
-        all_cities = get_livedoor_cities()
-        if not all_cities: return None
-        closest_city = None
-        min_distance = float('inf')
-        for city in all_cities:
-            distance = haversine(user_lat, user_lon, city["lat"], city["lon"])
-            if distance < min_distance:
-                min_distance = distance
-                closest_city = city
-        if closest_city:
-            print(f"'{user_input_city}'に最も近い都市として'{closest_city['name']}' (ID: {closest_city['id']}) を選択しました。")
-            return closest_city['id']
-        return None
-    except Exception as e:
-        print(f"Error in get_closest_city_id: {e}")
-        return None
-
-def get_livedoor_forecast_message_dict(city_id):
+def get_livedoor_forecast_message_dict(city_id, city_name):
     """指定された都市IDの天気予報を取得する関数"""
     api_url = f"https://weather.tsukumijima.net/api/forecast?city={city_id}"
     try:
@@ -74,13 +19,14 @@ def get_livedoor_forecast_message_dict(city_id):
         response.raise_for_status()
         data = response.json()
         today_forecast = data["forecasts"][0]
-        city_name = data["location"]["city"]
+        # city_nameはDBから取得したものを正として使う
         weather = today_forecast["telop"]
         temp_max_obj = today_forecast["temperature"]["max"]
         temp_min_obj = today_forecast["temperature"]["min"]
         temp_max = temp_max_obj["celsius"] if temp_max_obj else "--"
         temp_min = temp_min_obj["celsius"] if temp_min_obj else "--"
         chance_of_rain = " / ".join(today_forecast["chanceOfRain"].values())
+
         flex_message = {
             "type": "flex", "altText": f"{city_name}の天気予報",
             "contents": {
@@ -137,23 +83,19 @@ def send_daily_forecasts():
         print("通知対象のユーザーが見つかりませんでした。")
     
     for user in users:
-        user_id, city_name, city_id = user # DBにはcity_idは無いが、下で検索するのでOK
-        print(f"登録地「{city_name}」({user_id})の天気予報を送信中...")
+        user_id, city_name, city_id = user # DBからcity_idを取得
+        print(f"登録地「{city_name}」(ID: {city_id})の天気予報を送信中...")
         
-        # データベースに保存された地名から、最も近い都市のIDを取得
-        closest_city_id = get_closest_city_id(city_name)
-        if closest_city_id:
-            forecast_message = get_livedoor_forecast_message_dict(closest_city_id)
+        if city_id:
+            forecast_message = get_livedoor_forecast_message_dict(city_id, city_name)
             push_to_line(user_id, [forecast_message])
         else:
-            print(f"「{city_name}」の都市IDが見つからなかったため、送信をスキップします。")
-            error_message = {"type": "text", "text": f"ご登録の地点「{city_name}」の天気情報が見つかりませんでした。お手数ですが、メニューから地点を再登録してください。"}
-            push_to_line(user_id, [error_message])
+            print(f"「{city_name}」の都市IDがDBにないため、送信をスキップします。")
             
     print("デイリー通知の送信が完了しました。")
 
 if __name__ == "__main__":
-    if not all([CHANNEL_ACCESS_TOKEN, OPENWEATHER_API_KEY]):
+    if not CHANNEL_ACCESS_TOKEN:
         print("エラー: .envファイルに必要なキーが設定されていません。")
     else:
         send_daily_forecasts()

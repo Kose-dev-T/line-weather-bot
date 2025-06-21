@@ -5,11 +5,15 @@ from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent, PostbackEvent
+# QuickReply機能に必要な部品をインポート
+from linebot.v3.messaging import (
+    Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage,
+    QuickReply, QuickReplyButton, MessageAction
+)
 from datetime import datetime
 from dotenv import load_dotenv
 import database
 import xml.etree.ElementTree as ET
-import math
 
 # --- 初期設定 ---
 load_dotenv()
@@ -20,138 +24,45 @@ with app.app_context():
 
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
-OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
 handler = WebhookHandler(CHANNEL_SECRET)
 
 # --- グローバル変数 ---
-LIVEDOOR_CITY_LIST = None
+AREA_DATA_CACHE = None
 
 # --- 補助関数群 ---
-
-def get_livedoor_cities():
-    """livedoor互換APIの都市リストとID、緯度経度を取得・キャッシュする関数"""
-    global LIVEDOOR_CITY_LIST
-    if LIVEDOOR_CITY_LIST is not None:
-        return LIVEDOOR_CITY_LIST
-
-    # このリストは、一般的に公開されているLivedoor Weatherの主要な都市コードと緯度経度の対応表です。
-    # ここに都市を追加すれば、検索精度が向上します。
-    LIVEDOOR_CITY_LIST = [
-        {"id": "016010", "name": "札幌", "lat": 43.064, "lon": 141.347},
-        {"id": "040010", "name": "仙台", "lat": 38.268, "lon": 140.872},
-        {"id": "130010", "name": "東京", "lat": 35.689, "lon": 139.692},
-        {"id": "140010", "name": "横浜", "lat": 35.448, "lon": 139.642},
-        {"id": "230010", "name": "名古屋", "lat": 35.181, "lon": 136.906},
-        {"id": "250010", "name": "大津", "lat": 35.004, "lon": 135.869},
-        {"id": "250020", "name": "彦根", "lat": 35.274, "lon": 136.259},
-        {"id": "260010", "name": "京都", "lat": 35.021, "lon": 135.754},
-        {"id": "270000", "name": "大阪", "lat": 34.686, "lon": 135.520},
-        {"id": "280010", "name": "神戸", "lat": 34.694, "lon": 135.195},
-        {"id": "340010", "name": "広島", "lat": 34.396, "lon": 132.459},
-        {"id": "400010", "name": "福岡", "lat": 33.591, "lon": 130.401},
-        {"id": "471010", "name": "那覇", "lat": 26.212, "lon": 127.681}
-    ]
-    print("主要都市リストをキャッシュしました。")
-    return LIVEDOOR_CITY_LIST
-
-def haversine(lat1, lon1, lat2, lon2):
-    """2点間の距離を計算する関数（ハーバーサイン公式）"""
-    R = 6371 # 地球の半径 (km)
-    dLat, dLon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
-    a = math.sin(dLat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dLon/2)**2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-
-def get_closest_city_id(user_input_city):
-    """ユーザー入力の地名に最も近い、予報可能な都市のIDを返す"""
+def get_area_data():
+    """livedoor互換APIの都市リストXMLを取得・キャッシュする関数"""
+    global AREA_DATA_CACHE
+    if AREA_DATA_CACHE is not None:
+        return AREA_DATA_CACHE
     try:
-        # 1. ユーザー入力の地名の緯度・経度を取得 (OWM API)
-        geo_api_url = f"http://api.openweathermap.org/geo/1.0/direct?q={user_input_city},JP&limit=1&appid={OPENWEATHER_API_KEY}"
-        geo_res = requests.get(geo_api_url)
-        geo_res.raise_for_status()
-        geo_data = geo_res.json()
-        if not geo_data: return None
-        
-        user_lat, user_lon = geo_data[0]['lat'], geo_data[0]['lon']
-        
-        # 2. 予報可能な全都市のリストを取得
-        all_cities = get_livedoor_cities()
-        if not all_cities: return None
-        
-        # 3. 最も近い都市を探す
-        closest_city = None
-        min_distance = float('inf')
-
-        for city in all_cities:
-            distance = haversine(user_lat, user_lon, city["lat"], city["lon"])
-            if distance < min_distance:
-                min_distance = distance
-                closest_city = city
-        
-        if closest_city:
-            print(f"'{user_input_city}'に最も近い都市として'{closest_city['name']}' (ID: {closest_city['id']}) を選択しました。")
-            return closest_city['id']
-        return None
-
-    except Exception as e:
-        print(f"Error in get_closest_city_id: {e}")
-        return None
-
-def get_livedoor_forecast_message_dict(city_id):
-    """指定された都市IDの天気予報を取得する関数"""
-    api_url = f"https://weather.tsukumijima.net/api/forecast?city={city_id}"
-    try:
-        response = requests.get(api_url)
+        response = requests.get("https://weather.tsukumijima.net/primary_area.xml")
         response.raise_for_status()
-        data = response.json()
-        
-        today_forecast = data["forecasts"][0]
-        city_name = data["location"]["city"]
-        weather = today_forecast["telop"]
-        temp_max_obj = today_forecast["temperature"]["max"]
-        temp_min_obj = today_forecast["temperature"]["min"]
-        
-        temp_max = temp_max_obj["celsius"] if temp_max_obj else "--"
-        temp_min = temp_min_obj["celsius"] if temp_min_obj else "--"
-
-        chance_of_rain = " / ".join(today_forecast["chanceOfRain"].values())
-
-        flex_message = {
-            "type": "flex", "altText": f"{city_name}の天気予報",
-            "contents": {
-                "type": "bubble", "direction": 'ltr',
-                "header": {"type": "box", "layout": "vertical", "contents": [
-                    {"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}
-                ], "backgroundColor": "#00B900", "paddingTop": "12px", "paddingBottom": "12px"},
-                "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
-                    {"type": "box", "layout": "vertical", "contents": [
-                        {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#00B900"},
-                        {"type": "text", "text": today_forecast["date"], "size": "sm", "color": "#AAAAAA"}]},
-                    {"type": "separator", "margin": "md"},
-                    {"type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [
-                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "天気", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": weather, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
-                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "最高気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{temp_max}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
-                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "最低気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{temp_min}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
-                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "降水確率", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": chance_of_rain, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]}
-                    ]}
-                ]}
-            }
-        }
-        return flex_message
+        try:
+            AREA_DATA_CACHE = ET.fromstring(response.content.decode('euc-jp'))
+        except Exception:
+            AREA_DATA_CACHE = ET.fromstring(response.content.decode('utf-8'))
+        print("地域・都市リストをダウンロード・キャッシュしました。")
+        return AREA_DATA_CACHE
     except Exception as e:
-        print(f"Livedoor Forecast API Error: {e}")
-        return {"type": "text", "text": "天気情報の取得に失敗しました。"}
+        print(f"地域・都市リストの取得に失敗しました: {e}")
+        return None
 
-def reply_to_line(reply_token, messages):
+def create_quick_reply(options):
+    """選択肢のリストからQuickReplyボタンを作成する関数"""
+    if len(options) > 13:
+        options = options[:13] # LINEのQuickReplyは最大13個
+    items = [QuickReplyButton(action=MessageAction(label=opt, text=opt)) for opt in options]
+    return QuickReply(items=items)
+
+def reply_to_line(reply_token, text, quick_reply=None):
+    """LINEにメッセージを返信する関数"""
     headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
+    messages = [{"type": "text", "text": text}]
+    if quick_reply:
+        messages[0]["quickReply"] = quick_reply.to_dict()
+    
     body = {"replyToken": reply_token, "messages": messages}
     try:
         response = requests.post("https://api.line.me/v2/bot/message/reply", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
@@ -170,54 +81,80 @@ def callback():
         abort(400)
     return 'OK'
 
+def start_location_setting(event):
+    """地点登録/変更のフローを開始する関数"""
+    user_id = event.source.user_id
+    database.set_user_state(user_id, 'waiting_for_area')
+    
+    area_data = get_area_data()
+    if not area_data:
+        reply_to_line(event.reply_token, "地域情報の取得に失敗しました。しばらくしてからお試しください。")
+        return
+
+    area_names = [area.get('title') for area in area_data.findall('.//area')]
+    quick_reply = create_quick_reply(area_names)
+    reply_to_line(event.reply_token, "お住まいのエリアを選択してください。", quick_reply)
+
+# --- イベントごとの処理 ---
 @handler.add(FollowEvent)
 def handle_follow(event):
-    user_id = event.source.user_id
-    database.set_user_state(user_id, 'waiting_for_location')
-    reply_messages = [{"type": "text", "text": "友達追加ありがとうございます！\n毎日の天気予報を通知するために、まずはお住まいの地名（例: 大阪市）を教えてください。"}]
-    reply_to_line(event.reply_token, reply_messages)
+    start_location_setting(event)
 
 @handler.add(PostbackEvent)
 def handle_postback(event):
-    user_id = event.source.user_id
     if event.postback.data == 'action=change_location':
-        database.set_user_state(user_id, 'waiting_for_location')
-        reply_messages = [{"type": "text", "text": "新しい通知先の地名を教えてください。（例: 横浜市）"}]
-        reply_to_line(event.reply_token, reply_messages)
+        start_location_setting(event)
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     user_id = event.source.user_id
     user_message = event.message.text
-    messages_to_send = []
+    user_state = database.get_user_state(user_id)
     
-    try:
-        user_state = database.get_user_state(user_id)
-        
-        if user_state == 'waiting_for_location':
-            city_id = get_closest_city_id(user_message)
-            if city_id:
-                database.set_user_location(user_id, user_message, city_id)
-                messages_to_send.append({"type": "text", "text": f"地点を「{user_message}」に設定しました。\n明日から登録地点の天気予報をお届けします！"})
-            else:
-                messages_to_send.append({"type": "text", "text": f"「{user_message}」が見つかりませんでした。日本の市町村名などで入力してください。"})
-        else:
-            city_id = get_closest_city_id(user_message)
-            if city_id:
-                forecast_message = get_livedoor_forecast_message_dict(city_id)
-                messages_to_send.append(forecast_message)
-            else:
-                messages_to_send.append({"type": "text", "text": f"「{user_message}」の天気情報が見つかりませんでした。"})
-    
-    except Exception as e:
-        print(f"Error in handle_message: {e}")
-        messages_to_send.append({"type": "text", "text": "現在、データベースが準備中です。しばらくしてからもう一度お試しください。"})
+    area_data = get_area_data()
+    if not area_data:
+        reply_to_line(event.reply_token, "地域情報の取得に失敗しました。")
+        return
 
-    if messages_to_send:
-        reply_to_line(event.reply_token, messages_to_send)
+    # --- 状態に応じた分岐処理 ---
+    if user_state == 'waiting_for_area':
+        selected_area = area_data.find(f".//area[@title='{user_message}']")
+        if selected_area:
+            pref_names = [pref.get('title') for pref in selected_area.findall('pref')]
+            quick_reply = create_quick_reply(pref_names)
+            database.set_user_state(user_id, f'waiting_for_pref:{user_message}')
+            reply_to_line(event.reply_token, "次に都道府県を選択してください。", quick_reply)
+        else:
+            reply_to_line(event.reply_token, "ボタンから正しいエリア名を選択してください。")
+
+    elif user_state and user_state.startswith('waiting_for_pref:'):
+        area_name = user_state.split(':')[1]
+        selected_area = area_data.find(f".//area[@title='{area_name}']")
+        selected_pref = selected_area.find(f".//pref[@title='{user_message}']") if selected_area else None
+        
+        if selected_pref:
+            city_names = [city.get('title') for city in selected_pref.findall('city')]
+            quick_reply = create_quick_reply(city_names)
+            database.set_user_state(user_id, f'waiting_for_city:{user_message}')
+            reply_to_line(event.reply_token, "最後に都市名を選択してください。", quick_reply)
+        else:
+            reply_to_line(event.reply_token, "ボタンから正しい都道府県名を選択してください。")
+
+    elif user_state and user_state.startswith('waiting_for_city:'):
+        pref_name = user_state.split(':')[1]
+        selected_city_element = area_data.find(f".//pref[@title='{pref_name}']/city[@title='{user_message}']")
+
+        if selected_city_element:
+            city_id = selected_city_element.get('id')
+            city_name = selected_city_element.get('title')
+            database.set_user_location(user_id, city_name, city_id)
+            reply_to_line(event.reply_token, f"地点を「{city_name}」に設定しました！\n明日から毎朝、天気予報をお届けします。")
+        else:
+            reply_to_line(event.reply_token, "ボタンから正しい都市名を選択してください。")
+            
+    else:
+        # 通常時は特に何も返さない（オンデマンド機能は削除）
+        reply_to_line(event.reply_token, "メニューの「地点を変更する」から、通知先を設定してください。")
 
 if __name__ == "__main__":
-    if not all([CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET, OPENWEATHER_API_KEY]):
-        print("エラー: .envファイルに必要なキーが設定されていません。")
-    else:
-        app.run(port=5000)
+    app.run(port=5000)

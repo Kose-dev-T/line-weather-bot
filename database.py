@@ -57,18 +57,10 @@ def set_user_location(user_id, city_name, city_id):
         """), {"user_id": user_id, "city_name": city_name, "city_id": city_id})
         connection.commit()
 
-def get_user_location(user_id):
-    """ユーザーの登録地を取得する関数"""
-    if not engine: return None
-    with engine.connect() as connection:
-        # city_idを返すように変更
-        result = connection.execute(text("SELECT city_id FROM users WHERE user_id = :user_id"), {"user_id": user_id}).fetchone()
-        return result[0] if result else None
-
 def get_all_users_with_location():
     """登録地がある全ユーザーの情報を取得する関数（自動通知用）"""
     if not engine: return []
     with engine.connect() as connection:
-        # city_idを返すように変更
+        # city_nameとcity_idを返すように変更
         result = connection.execute(text("SELECT user_id, city_name, city_id FROM users WHERE city_id IS NOT NULL")).fetchall()
         return result
