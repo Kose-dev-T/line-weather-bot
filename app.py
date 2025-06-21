@@ -9,102 +9,129 @@ from datetime import datetime
 from dotenv import load_dotenv
 import database
 import xml.etree.ElementTree as ET
+import math
 
 # --- 初期設定 ---
 load_dotenv()
 app = Flask(__name__)
 
-# アプリケーションのコンテキスト内でデータベースを初期化
 with app.app_context():
     database.init_db()
 
-# 環境変数からキー情報を取得
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
 handler = WebhookHandler(CHANNEL_SECRET)
 
-# --- グローバル変数（気象庁エリアコードのキャッシュ用） ---
-JMA_AREA_DATA = None
+# --- グローバル変数 ---
+LIVEDOOR_CITY_LIST = None
 
 # --- 補助関数群 ---
 
-def get_jma_area_info(city_name):
-    """ユーザーが入力した地名から、対応する気象庁のエリアコードなどを特定する関数"""
-    global JMA_AREA_DATA
-    
+def get_livedoor_cities():
+    """livedoor互換APIの都市リストとID、緯度経度を取得・キャッシュする関数"""
+    global LIVEDOOR_CITY_LIST
+    if LIVEDOOR_CITY_LIST is not None:
+        return LIVEDOOR_CITY_LIST
+
+    # このリストは、一般的に公開されているLivedoor Weatherの主要な都市コードと緯度経度の対応表です。
+    # ここに都市を追加すれば、検索精度が向上します。
+    LIVEDOOR_CITY_LIST = [
+        {"id": "016010", "name": "札幌", "lat": 43.064, "lon": 141.347},
+        {"id": "040010", "name": "仙台", "lat": 38.268, "lon": 140.872},
+        {"id": "130010", "name": "東京", "lat": 35.689, "lon": 139.692},
+        {"id": "140010", "name": "横浜", "lat": 35.448, "lon": 139.642},
+        {"id": "230010", "name": "名古屋", "lat": 35.181, "lon": 136.906},
+        {"id": "250010", "name": "大津", "lat": 35.004, "lon": 135.869},
+        {"id": "250020", "name": "彦根", "lat": 35.274, "lon": 136.259},
+        {"id": "260010", "name": "京都", "lat": 35.021, "lon": 135.754},
+        {"id": "270000", "name": "大阪", "lat": 34.686, "lon": 135.520},
+        {"id": "280010", "name": "神戸", "lat": 34.694, "lon": 135.195},
+        {"id": "340010", "name": "広島", "lat": 34.396, "lon": 132.459},
+        {"id": "400010", "name": "福岡", "lat": 33.591, "lon": 130.401},
+        {"id": "471010", "name": "那覇", "lat": 26.212, "lon": 127.681}
+    ]
+    print("主要都市リストをキャッシュしました。")
+    return LIVEDOOR_CITY_LIST
+
+def haversine(lat1, lon1, lat2, lon2):
+    """2点間の距離を計算する関数（ハーバーサイン公式）"""
+    R = 6371 # 地球の半径 (km)
+    dLat, dLon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(dLat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dLon/2)**2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+def get_closest_city_id(user_input_city):
+    """ユーザー入力の地名に最も近い、予報可能な都市のIDを返す"""
     try:
-        geo_api_url = f"http://api.openweathermap.org/geo/1.0/direct?q={city_name},JP&limit=1&appid={OPENWEATHER_API_KEY}"
+        # 1. ユーザー入力の地名の緯度・経度を取得 (OWM API)
+        geo_api_url = f"http://api.openweathermap.org/geo/1.0/direct?q={user_input_city},JP&limit=1&appid={OPENWEATHER_API_KEY}"
         geo_res = requests.get(geo_api_url)
         geo_res.raise_for_status()
         geo_data = geo_res.json()
-        if not geo_data:
-            return None
+        if not geo_data: return None
         
-        prefecture_en = geo_data[0].get("state", geo_data[0].get("name", ""))
-        prefecture_map = {"Hokkaido": "北海道", "Aomori": "青森県", "Iwate": "岩手県", "Miyagi": "宮城県", "Akita": "秋田県", "Yamagata": "山形県", "Fukushima": "福島県", "Ibaraki": "茨城県", "Tochigi": "栃木県", "Gunma": "群馬県", "Saitama": "埼玉県", "Chiba": "千葉県", "Tokyo": "東京都", "Kanagawa": "神奈川県", "Niigata": "新潟県", "Toyama": "富山県", "Ishikawa": "石川県", "Fukui": "福井県", "Yamanashi": "山梨県", "Nagano": "長野県", "Gifu": "岐阜県", "Shizuoka": "静岡県", "Aichi": "愛知県", "Mie": "三重県", "Shiga": "滋賀県", "Kyoto": "京都府", "Osaka": "大阪府", "Hyogo": "兵庫県", "Nara": "奈良県", "Wakayama": "和歌山県", "Tottori": "鳥取県", "Shimane": "島根県", "Okayama": "岡山県", "Hiroshima": "広島県", "Yamaguchi": "山口県", "Tokushima": "徳島県", "Kagawa": "香川県", "Ehime": "愛媛県", "Kochi": "高知県", "Fukuoka": "福岡県", "Saga": "佐賀県", "Nagasaki": "長崎県", "Kumamoto": "熊本県", "Oita": "大分県", "Miyazaki": "宮崎県", "Kagoshima": "鹿児島県", "Okinawa": "沖縄県"}
-        prefecture_jp = prefecture_map.get(prefecture_en)
-        if not prefecture_jp: return None
-
-        if JMA_AREA_DATA is None:
-            area_res = requests.get("https://www.jma.go.jp/bosai/common/const/area.json")
-            area_res.raise_for_status()
-            JMA_AREA_DATA = area_res.json()
-            print("気象庁エリアデータを取得・キャッシュしました。")
-
-        office_code = None
-        for code, info in JMA_AREA_DATA["offices"].items():
-            if info["name"] == prefecture_jp:
-                office_code = code
-                break
-        if not office_code: return None
+        user_lat, user_lon = geo_data[0]['lat'], geo_data[0]['lon']
         
-        first_area_code = JMA_AREA_DATA["offices"][office_code]["children"][0]
-        area_name = JMA_AREA_DATA["class20s"][first_area_code]["name"]
+        # 2. 予報可能な全都市のリストを取得
+        all_cities = get_livedoor_cities()
+        if not all_cities: return None
         
-        return {"office_code": office_code, "area_code": first_area_code, "area_name": area_name}
+        # 3. 最も近い都市を探す
+        closest_city = None
+        min_distance = float('inf')
 
-    except Exception as e:
-        print(f"JMA Area Info Error: {e}")
+        for city in all_cities:
+            distance = haversine(user_lat, user_lon, city["lat"], city["lon"])
+            if distance < min_distance:
+                min_distance = distance
+                closest_city = city
+        
+        if closest_city:
+            print(f"'{user_input_city}'に最も近い都市として'{closest_city['name']}' (ID: {closest_city['id']}) を選択しました。")
+            return closest_city['id']
         return None
 
-def get_jma_forecast_message_dict(office_code, area_code, area_name):
-    """【気象庁データ版】指定されたコードの天気予報を取得する関数"""
-    api_url = f"https://www.jma.go.jp/bosai/forecast/data/forecast/{office_code}.json"
+    except Exception as e:
+        print(f"Error in get_closest_city_id: {e}")
+        return None
+
+def get_livedoor_forecast_message_dict(city_id):
+    """指定された都市IDの天気予報を取得する関数"""
+    api_url = f"https://weather.tsukumijima.net/api/forecast?city={city_id}"
     try:
         response = requests.get(api_url)
         response.raise_for_status()
         data = response.json()
         
-        time_series = data[0]["timeSeries"]
-        weather_area = next((area for area in time_series[0]["areas"] if area["area"]["code"] == area_code), None)
-        today_weather = weather_area["weathers"][0].replace("　", " ") if weather_area else "情報なし"
-
-        pops_area = time_series[1]["areas"][0]
-        pops = [p for p in pops_area["pops"] if p != "--"]
-        pop_today = max(map(int, pops[:2])) if len(pops) >= 2 else (pops[0] if pops else "---")
-
-        temp_area = next((area for area in time_series[2]["areas"] if area["area"]["code"] == area_code), None)
-        temp_max = temp_area["temps"][0] if temp_area else "--"
-        temp_min = temp_area["temps"][1] if temp_area else "--"
+        today_forecast = data["forecasts"][0]
+        city_name = data["location"]["city"]
+        weather = today_forecast["telop"]
+        temp_max_obj = today_forecast["temperature"]["max"]
+        temp_min_obj = today_forecast["temperature"]["min"]
         
+        temp_max = temp_max_obj["celsius"] if temp_max_obj else "--"
+        temp_min = temp_min_obj["celsius"] if temp_min_obj else "--"
+
+        chance_of_rain = " / ".join(today_forecast["chanceOfRain"].values())
+
         flex_message = {
-            "type": "flex", "altText": f"{area_name}の天気予報 (気象庁)",
+            "type": "flex", "altText": f"{city_name}の天気予報",
             "contents": {
                 "type": "bubble", "direction": 'ltr',
                 "header": {"type": "box", "layout": "vertical", "contents": [
-                    {"type": "text", "text": "今日の天気予報 (気象庁)", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}
-                ], "backgroundColor": "#27A5F9", "paddingTop": "12px", "paddingBottom": "12px"},
+                    {"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}
+                ], "backgroundColor": "#00B900", "paddingTop": "12px", "paddingBottom": "12px"},
                 "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
                     {"type": "box", "layout": "vertical", "contents": [
-                        {"type": "text", "text": area_name, "size": "lg", "weight": "bold", "color": "#1DB446"},
-                        {"type": "text", "text": datetime.now().strftime('%Y年%m月%d日'), "size": "sm", "color": "#AAAAAA"}]},
+                        {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#00B900"},
+                        {"type": "text", "text": today_forecast["date"], "size": "sm", "color": "#AAAAAA"}]},
                     {"type": "separator", "margin": "md"},
                     {"type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "天気", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": today_weather, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                            {"type": "text", "text": weather, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "最高気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
                             {"type": "text", "text": f"{temp_max}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
@@ -113,15 +140,15 @@ def get_jma_forecast_message_dict(office_code, area_code, area_name):
                             {"type": "text", "text": f"{temp_min}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                             {"type": "text", "text": "降水確率", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{pop_today}%", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]}
+                            {"type": "text", "text": chance_of_rain, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]}
                     ]}
                 ]}
             }
         }
         return flex_message
     except Exception as e:
-        print(f"JMA Forecast API Error: {e}")
-        return {"type": "text", "text": "気象庁からの天気情報取得に失敗しました。"}
+        print(f"Livedoor Forecast API Error: {e}")
+        return {"type": "text", "text": "天気情報の取得に失敗しました。"}
 
 def reply_to_line(reply_token, messages):
     headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
@@ -168,23 +195,23 @@ def handle_message(event):
         user_state = database.get_user_state(user_id)
         
         if user_state == 'waiting_for_location':
-            area_info = get_jma_area_info(user_message)
-            if area_info:
-                database.set_user_location(user_id, user_message, 0, 0)
+            city_id = get_closest_city_id(user_message)
+            if city_id:
+                database.set_user_location(user_id, user_message, city_id)
                 messages_to_send.append({"type": "text", "text": f"地点を「{user_message}」に設定しました。\n明日から登録地点の天気予報をお届けします！"})
             else:
                 messages_to_send.append({"type": "text", "text": f"「{user_message}」が見つかりませんでした。日本の市町村名などで入力してください。"})
         else:
-            area_info = get_jma_area_info(user_message)
-            if area_info:
-                forecast_message = get_jma_forecast_message_dict(area_info["office_code"], area_info["area_code"], area_info["area_name"])
+            city_id = get_closest_city_id(user_message)
+            if city_id:
+                forecast_message = get_livedoor_forecast_message_dict(city_id)
                 messages_to_send.append(forecast_message)
             else:
                 messages_to_send.append({"type": "text", "text": f"「{user_message}」の天気情報が見つかりませんでした。"})
     
     except Exception as e:
         print(f"Error in handle_message: {e}")
-        messages_to_send.append({"type": "text", "text": "処理中にエラーが発生しました。"})
+        messages_to_send.append({"type": "text", "text": "現在、データベースが準備中です。しばらくしてからもう一度お試しください。"})
 
     if messages_to_send:
         reply_to_line(event.reply_token, messages_to_send)
