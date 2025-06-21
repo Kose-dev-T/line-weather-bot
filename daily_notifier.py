@@ -4,27 +4,25 @@ import json
 from datetime import datetime
 from dotenv import load_dotenv
 import database
-import xml.etree.ElementTree as ET # XMLを解析するためにインポート
+import xml.etree.ElementTree as ET
 
 # --- 初期設定 ---
 load_dotenv()
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
-# 【修正】地名から都道府県を特定するために、OpenWeatherMapのAPIキーも読み込みます
+# 地名から都道府県を特定するために、OpenWeatherMapのAPIキーも読み込みます
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
 # --- グローバル変数 ---
 CITY_LIST_CACHE = None
 
-# --- 補助関数群 ---
+# --- 補助関数群（app.pyからコピー） ---
 
 def get_city_id(user_input_city):
     """
     ユーザーが入力した地名から、最も関連性の高い主要都市のIDを返す関数。
-    (例: 「東近江市」 -> 滋賀県の主要都市である「大津」のIDを返す)
     """
     global CITY_LIST_CACHE
     
-    # 1. OpenWeatherMap APIを使い、入力された地名の「都道府県」を特定する
     try:
         geo_api_url = "http://api.openweathermap.org/geo/1.0/direct"
         geo_params = {"q": f"{user_input_city},JP", "limit": 1, "appid": OPENWEATHER_API_KEY}
@@ -43,7 +41,6 @@ def get_city_id(user_input_city):
         print(f"Error getting prefecture from OWM: {e}")
         return None
 
-    # 2. 英語の都道府県名を日本語（短縮形）に変換する
     prefecture_map = {
         "Hokkaido": "北海道", "Aomori": "青森", "Iwate": "岩手", "Miyagi": "宮城", 
         "Akita": "秋田", "Yamagata": "山形", "Fukushima": "福島", "Ibaraki": "茨城", 
@@ -64,18 +61,29 @@ def get_city_id(user_input_city):
         print(f"Could not map English prefecture '{prefecture_en}' to Japanese.")
         return None
 
-    # 3. Livedoor互換APIの都市リストXMLを読み込む
     if CITY_LIST_CACHE is None:
         try:
             response = requests.get("https://weather.tsukumijima.net/primary_area.xml")
             response.raise_for_status()
-            CITY_LIST_CACHE = ET.fromstring(response.content.decode('utf-8'))
+            # XMLの文字コードがEUC-JPの場合を考慮してデコードを試みる
+            try:
+                CITY_LIST_CACHE = ET.fromstring(response.content.decode('euc-jp'))
+            except Exception:
+                CITY_LIST_CACHE = ET.fromstring(response.content.decode('utf-8'))
             print("都市リストをダウンロード・キャッシュしました。")
         except Exception as e:
             print(f"都市リストの取得に失敗しました: {e}")
             return None
             
-    # 4. 特定した都道府県の、最初の都市（主要都市）のIDを返す
+    # XML全体からcityタグを直接検索する
+    search_term = user_input_city.replace('市', '').replace('町', '').replace('村', '').replace('区', '')
+    perfect_match = CITY_LIST_CACHE.find(f".//city[@title='{search_term}']")
+    if perfect_match is not None:
+        city_id = perfect_match.get('id')
+        print(f"Direct match found for '{search_term}'. City ID: {city_id}")
+        return city_id
+
+    # 直接一致がなければ、特定した都道府県の最初の都市（主要都市）のIDを返す
     pref_element = CITY_LIST_CACHE.find(f".//pref[@title='{prefecture_jp_short}']")
     
     if pref_element is not None:
@@ -85,7 +93,7 @@ def get_city_id(user_input_city):
             print(f"Input '{user_input_city}' resolved to prefecture '{prefecture_jp_short}' and primary city ID '{city_id}'")
             return city_id
     
-    print(f"Could not find a primary city for prefecture '{prefecture_jp_short}' in the XML list.")
+    print(f"Could not find any match for '{user_input_city}'.")
     return None
 
 def get_livedoor_forecast_message_dict(city_id):
@@ -139,6 +147,7 @@ def get_livedoor_forecast_message_dict(city_id):
         return {"type": "text", "text": "天気情報の取得に失敗しました。"}
 
 def push_to_line(user_id, messages):
+    """requestsを使って、LINEにプッシュ通知を送信する関数"""
     headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
     body = {"to": user_id, "messages": messages}
     try:
@@ -150,6 +159,7 @@ def push_to_line(user_id, messages):
         if e.response: print(f"応答内容: {e.response.text}")
 
 def send_daily_forecasts():
+    """登録ユーザー全員に天気予報を通知するメイン関数"""
     print("デイリー通知の送信を開始します...")
     database.init_db()
     users = database.get_all_users_with_location()
@@ -161,6 +171,7 @@ def send_daily_forecasts():
         user_id, city_name, lat, lon = user
         print(f"登録地「{city_name}」({user_id})の天気予報を送信中...")
         
+        # データベースに保存された地名から都市IDを取得
         city_id = get_city_id(city_name)
         if city_id:
             forecast_message = get_livedoor_forecast_message_dict(city_id)
@@ -172,8 +183,9 @@ def send_daily_forecasts():
             
     print("デイリー通知の送信が完了しました。")
 
+# --- メインの実行部分 ---
 if __name__ == "__main__":
-    if not CHANNEL_ACCESS_TOKEN or not OPENWEATHER_API_KEY:
+    if not all([CHANNEL_ACCESS_TOKEN, OPENWEATHER_API_KEY]):
         print("エラー: .envファイルにCHANNEL_ACCESS_TOKENとOPENWEATHER_API_KEYが設定されていません。")
     else:
         send_daily_forecasts()
