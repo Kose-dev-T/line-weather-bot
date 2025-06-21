@@ -19,71 +19,95 @@ with app.app_context():
 
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
-# OpenWeatherMapのキーは不要になるので、後で.envファイルから削除してもOKです
+# 【修正】地名から都道府県を特定するために、OpenWeatherMapのAPIキーも読み込みます
+OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
 handler = WebhookHandler(CHANNEL_SECRET)
 
-# --- グローバル変数（都市IDリストのキャッシュ用） ---
+# --- グローバル変数 ---
 CITY_LIST_CACHE = None
 
 # --- 補助関数群 ---
 
 def get_city_id(user_input_city):
-    """ユーザーが入力した地名に最も近い都市IDを探す関数"""
+    """
+    ユーザーが入力した地名から、最も関連性の高い主要都市のIDを返す関数。
+    (daily_notifier.pyと全く同じ関数です)
+    """
     global CITY_LIST_CACHE
     
-    # 都市リストをまだ取得していなければ、ダウンロードしてキャッシュする
+    try:
+        geo_api_url = "http://api.openweathermap.org/geo/1.0/direct"
+        geo_params = {"q": f"{user_input_city},JP", "limit": 1, "appid": OPENWEATHER_API_KEY}
+        geo_res = requests.get(geo_api_url, params=geo_params)
+        geo_res.raise_for_status()
+        geo_data = geo_res.json()
+        if not geo_data or "state" not in geo_data[0]:
+            print(f"OWM Geocoding API did not find a prefecture for '{user_input_city}'")
+            return None
+        prefecture_en = geo_data[0]["state"]
+    except Exception as e:
+        print(f"Error getting prefecture from OWM: {e}")
+        return None
+
+    prefecture_map = {
+        "Hokkaido": "北海道", "Aomori": "青森", "Iwate": "岩手", "Miyagi": "宮城", 
+        "Akita": "秋田", "Yamagata": "山形", "Fukushima": "福島", "Ibaraki": "茨城", 
+        "Tochigi": "栃木", "Gunma": "群馬", "Saitama": "埼玉", "Chiba": "千葉", 
+        "Tokyo": "東京", "Kanagawa": "神奈川", "Niigata": "新潟", "Toyama": "富山", 
+        "Ishikawa": "石川", "Fukui": "福井", "Yamanashi": "山梨", "Nagano": "長野", 
+        "Gifu": "岐阜", "Shizuoka": "静岡", "Aichi": "愛知", "Mie": "三重", 
+        "Shiga": "滋賀", "Kyoto": "京都", "Osaka": "大阪", "Hyogo": "兵庫", 
+        "Nara": "奈良", "Wakayama": "和歌山", "Tottori": "鳥取", "Shimane": "島根", 
+        "Okayama": "岡山", "Hiroshima": "広島", "Yamaguchi": "山口", 
+        "Tokushima": "徳島", "Kagawa": "香川", "Ehime": "愛媛", "Kochi": "高知", 
+        "Fukuoka": "福岡", "Saga": "佐賀", "Nagasaki": "長崎", "Kumamoto": "熊本", 
+        "Oita": "大分", "Miyazaki": "宮崎", "Kagoshima": "鹿児島", "Okinawa": "沖縄"
+    }
+    prefecture_jp_short = prefecture_map.get(prefecture_en)
+    
+    if not prefecture_jp_short:
+        print(f"Could not map English prefecture '{prefecture_en}' to Japanese.")
+        return None
+
     if CITY_LIST_CACHE is None:
         try:
-            # Weather Hacks互換APIが提供する都市リスト(XML形式)
             response = requests.get("https://weather.tsukumijima.net/primary_area.xml")
             response.raise_for_status()
-            CITY_LIST_CACHE = ET.fromstring(response.content)
+            CITY_LIST_CACHE = ET.fromstring(response.content.decode('utf-8'))
             print("都市リストをダウンロード・キャッシュしました。")
         except Exception as e:
             print(f"都市リストの取得に失敗しました: {e}")
             return None
-
-    # 検索のために、ユーザー入力の「市」や「町」などを削除する
-    search_term = user_input_city.replace('市', '').replace('町', '').replace('村', '').replace('区', '')
-
-    # 1. 完全一致で検索
-    perfect_match = CITY_LIST_CACHE.find(f".//city[@title='{search_term}']")
-    if perfect_match is not None:
-        return perfect_match.get('id')
+            
+    pref_element = CITY_LIST_CACHE.find(f".//pref[@title='{prefecture_jp_short}']")
     
-    # 2. 部分一致で検索
-    for city in CITY_LIST_CACHE.findall('.//city'):
-        if search_term in city.get('title'):
-            return city.get('id')
-
-    # 見つからなければNoneを返す
+    if pref_element is not None:
+        first_city = pref_element.find('city')
+        if first_city is not None:
+            city_id = first_city.get('id')
+            print(f"Input '{user_input_city}' resolved to prefecture '{prefecture_jp_short}' and primary city ID '{city_id}'")
+            return city_id
+    
+    print(f"Could not find a primary city for prefecture '{prefecture_jp_short}' in the XML list.")
     return None
 
 def get_livedoor_forecast_message_dict(city_id):
-    """指定された都市IDの天気予報を取得する関数"""
+    """指定された都市IDの天気予報を取得する関数 (daily_notifier.pyと全く同じ)"""
     api_url = f"https://weather.tsukumijima.net/api/forecast?city={city_id}"
     try:
         response = requests.get(api_url)
         response.raise_for_status()
         data = response.json()
-        
-        # 今日の予報を取得
         today_forecast = data["forecasts"][0]
-        
         city_name = data["location"]["city"]
         weather = today_forecast["telop"]
         temp_max_obj = today_forecast["temperature"]["max"]
         temp_min_obj = today_forecast["temperature"]["min"]
-        
-        # 気温データがない場合（null）の対策
         temp_max = temp_max_obj["celsius"] if temp_max_obj else "--"
         temp_min = temp_min_obj["celsius"] if temp_min_obj else "--"
-
-        # 降水確率を取得
         chance_of_rain = " / ".join(today_forecast["chanceOfRain"].values())
 
-        # FlexMessageを作成
         flex_message = {
             "type": "flex", "altText": f"{city_name}の天気予報",
             "contents": {
@@ -160,11 +184,13 @@ def handle_message(event):
     user_state = database.get_user_state(user_id)
     messages_to_send = []
     
+    # 【修正】賢くなったget_city_idを呼び出す
     city_id = get_city_id(user_message)
     
     if user_state == 'waiting_for_location':
         if city_id:
-            database.set_user_location(user_id, user_message, 0, 0) # lat,lonはもう使わない
+            # データベースには元のユーザー入力を保存する
+            database.set_user_location(user_id, user_message, 0, 0)
             messages_to_send.append({"type": "text", "text": f"地点を「{user_message}」に設定しました。\n明日から登録地点の天気予報をお届けします！"})
         else:
             messages_to_send.append({"type": "text", "text": f"「{user_message}」が見つかりませんでした。日本の市町村名などで入力してください。"})
@@ -179,4 +205,7 @@ def handle_message(event):
         reply_to_line(event.reply_token, messages_to_send)
 
 if __name__ == "__main__":
-    app.run(port=5000)
+    if not all([CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET, OPENWEATHER_API_KEY]):
+        print("エラー: .envファイルに必要なキーが設定されていません。")
+    else:
+        app.run(port=5000)
