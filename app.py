@@ -5,6 +5,7 @@ from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent, PostbackEvent
+# QuickReply機能に必要な部品をインポート
 from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage,
     QuickReply, QuickReplyButton, MessageAction
@@ -23,8 +24,6 @@ with app.app_context():
 
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
-# Livedoor互換APIでは不要だが、地点登録の検証で残していた
-OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY") 
 
 handler = WebhookHandler(CHANNEL_SECRET)
 
@@ -53,7 +52,7 @@ def get_area_data():
 def create_quick_reply(options):
     """選択肢のリストからQuickReplyボタンを作成する関数"""
     if len(options) > 13:
-        options = options[:13]
+        options = options[:13] # LINEのQuickReplyは最大13個
     items = [QuickReplyButton(action=MessageAction(label=opt, text=opt)) for opt in options]
     return QuickReply(items=items)
 
@@ -87,12 +86,13 @@ def start_location_setting(event):
     database.set_user_state(user_id, 'waiting_for_area')
     area_data = get_area_data()
     if not area_data:
-        reply_to_line(event.reply_token, "地域情報の取得に失敗しました。")
+        reply_to_line(event.reply_token, "地域情報の取得に失敗しました。しばらくしてからお試しください。")
         return
     area_names = [area.get('title') for area in area_data.findall('.//area')]
     quick_reply = create_quick_reply(area_names)
     reply_to_line(event.reply_token, "お住まいのエリアを選択してください。", quick_reply)
 
+# --- イベントごとの処理 ---
 @handler.add(FollowEvent)
 def handle_follow(event):
     start_location_setting(event)
@@ -107,6 +107,7 @@ def handle_message(event):
     user_id = event.source.user_id
     user_message = event.message.text
     user_state = database.get_user_state(user_id)
+    
     area_data = get_area_data()
     if not area_data:
         reply_to_line(event.reply_token, "地域情報の取得に失敗しました。")
